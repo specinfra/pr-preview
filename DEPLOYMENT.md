@@ -21,6 +21,7 @@ Only the host moves. The GitHub App is not re-registered and the S3 buckets are 
 - The existing AWS S3 buckets and their credentials
 - The existing GitHub App credentials
 - Outbound HTTPS access to `api.github.com`, S3, and the spec-generator services listed in `lib/services.js`
+- `unzip` and `diff` on the host image — the WHATWG/HTML path shells out to them (`lib/wattsi-client.js:138-171`). `diff` is on essentially any Linux image; `unzip` is a separate package on minimal images and is the one to verify.
 
 ## GitHub App
 
@@ -149,7 +150,9 @@ Changes take effect on restart, not on save — the panel will offer to restart 
 Set this in the **Scalability** panel. Two things need changing from the defaults:
 
 - **Exactly one instance.** Set minimum and maximum instances both to 1 and leave horizontal auto-scaling off. The controller keeps its job queue, its `currently_running` de-duplication set, and its previewer cache in process memory (`lib/controller.js:11-16`). A second instance would not see the first one's in-flight jobs, so the same PR could be built twice concurrently and the two runs would race to update the PR body.
-- **Flavor `S` or larger.** Avoid `pico` and `nano`: they run at reduced CPU priority and can be starved when the hypervisor is busy. Spec builds are long-running and the WHATWG/HTML path writes a full checkout to scratch space under `os.tmpdir()` (`lib/wattsi-client.js:25`), so the app needs real CPU and disk headroom. Size up if HTML builds time out.
+- **Flavor: size for memory and scratch disk, not compute.** The app is not CPU-bound. Every spec build happens on a remote service — Spec Generator, the HTML Diff service, Wattsi Server (`lib/services.js`) — so the process spends most of its life waiting on HTTP. What it consumes locally is memory (whole rendered specs are held as strings) and scratch disk: for a WHATWG PR it unzips two complete HTML spec builds into `os.tmpdir()` and runs `diff -qr` across them (`lib/wattsi-client.js:138-171`).
+
+  The right baseline is whatever dyno size Heroku runs today; copy it and adjust. Absent that, `S` is a reasonable starting point. Avoid `pico` and `nano` regardless — their reduced CPU priority makes latency unpredictable for something that has to answer a webhook promptly. Watch memory and disk during the first few WHATWG PRs, which are the heaviest thing the app does, and size up if either is tight.
 
 The filesystem is ephemeral — each deploy or restart gets a fresh VM. That is fine here: the only local writes are that scratch space, and nothing is expected to survive. No FS Bucket add-on is needed.
 
@@ -221,7 +224,7 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 
 ## Cutover
 
-1. Create and configure the Clever Cloud app: env vars, `PORT=8080`, `CC_NODE_VERSION`, one instance, flavor `S`.
+1. Create and configure the Clever Cloud app: env vars, `PORT=8080`, `CC_NODE_VERSION`, exactly one instance, and a flavor sized per [Instance sizing and scaling](#instance-sizing-and-scaling).
 2. Add the domain and confirm TLS is live (`curl -I https://<host>/` — a 404 is the expected answer, since there is no `GET` route; what matters is that the TLS handshake succeeds and the response comes from the app).
 3. Deploy and confirm the app boots, watching the **Logs** panel.
 4. Smoke-test the webhook endpoint before pointing GitHub at it. With `NODE_ENV=production` the signature check is enforced, so an unsigned POST is rejected — that rejection is itself the signal that the app is up and verifying:
@@ -232,8 +235,9 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 6. Verify a delivery in the GitHub App's Advanced tab — it should return 200 with an ISO timestamp body.
 7. Update the form action in [`docs/config.html`](docs/config.html) (line 61) from `https://pr-preview.herokuapp.com/config` to `https://<host>/config`, and ship that change.
 8. Trigger a real PR event on a repository that has a `.pr-preview.json` file and confirm the comment updates.
-9. Replay anything missed during the switchover by setting `STARTUP_QUEUE` and restarting the app from the Console, or by pushing an empty commit to the affected PRs.
-10. Leave the Heroku dyno up but idle for a grace period, then decommission it. Rotate any credentials that were only ever stored there.
+9. Test a `whatwg`-owned PR separately. It is the only path that uses the second bucket, and the only one that downloads, unzips and diffs full HTML spec builds on the instance — so it is where a missing `unzip`, a too-small flavor, or bad `WHATWG_AWS_*` credentials will show up, and none of those fail anywhere else.
+10. Replay anything missed during the switchover by setting `STARTUP_QUEUE` and restarting the app from the Console, or by pushing an empty commit to the affected PRs.
+11. Leave the Heroku dyno up but idle for a grace period, then decommission it. Rotate any credentials that were only ever stored there.
 
 **Rollback:** point the webhook URL back at the Heroku app. Nothing else is shared state — both hosts write to the same buckets under the same keys — so switching back is just the one setting, for as long as the Heroku app still exists.
 
