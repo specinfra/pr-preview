@@ -52,9 +52,9 @@ The App's current settings, recorded here so they can be reproduced if the App e
 - **App ID**: the numeric ID, into `GITHUB_INTEGRATION_ID`
 - Plus a personal access token (fine-grained, `Contents: Read` on target repos is enough) as `GITHUB_TOKEN`
 
-Registering a *new* App is not part of this move: it would be a breaking change requiring every org and repo to reinstall, and would need to be coordinated with w3c, whatwg, wicg, and w3ctag first.
+Registering a *new* App would be a breaking change: every org and repo currently using PR Preview would have to install the replacement, so it needs coordinating with w3c, whatwg, wicg, and w3ctag before it is considered.
 
-If the App should also change hands (e.g. to a new maintainer or an org account), that is done at **Settings → Developer settings → GitHub Apps → pr-preview → Advanced → Transfer ownership** and is [independent of the host move](https://docs.github.com/en/apps/maintaining-github-apps/transferring-ownership-of-a-github-app) — before, after, or not at all. App ID, private keys, webhook config, permissions and installations all carry over; watch that the `pr-preview` slug doesn't collide on the new owner (a collision renames the app and changes its public URL), and note that `GITHUB_TOKEN` belongs to a user account rather than the App, so a new operator needs to issue a fresh one.
+If the App should also change hands (e.g. to a new maintainer or an org account), that is done at **Settings → Developer settings → GitHub Apps → pr-preview → Advanced → Transfer ownership** and is [independent of where the app is hosted](https://docs.github.com/en/apps/maintaining-github-apps/transferring-ownership-of-a-github-app) — before, after, or not at all. App ID, private keys, webhook config, permissions and installations all carry over; watch that the `pr-preview` slug doesn't collide on the new owner (a collision renames the app and changes its public URL), and note that `GITHUB_TOKEN` belongs to a user account rather than the App, so a new operator needs to issue a fresh one.
 
 ## AWS S3
 
@@ -73,7 +73,7 @@ Objects should be publicly readable (previews are served directly to browsers fr
 
 The buckets are independent of where the app runs: moving hosts needs no object copy, no DNS change and no fronting-layer change, only the six `AWS_*` / `WHATWG_AWS_*` variables in the new environment.
 
-Two knobs worth knowing about, neither of which this move uses:
+Two knobs worth knowing about, neither used by the current deployment:
 
 - Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to disable the WHATWG bucket path entirely and route every PR through the default bucket — useful if you don't have WHATWG credentials.
 - Moving a bucket to a different AWS account is a copy + cutover, not a transfer (S3 bucket ownership cannot be reassigned): create a bucket in the destination account, `aws s3 sync` the objects over, reapply the public-read policy and CORS, repoint any fronting layer, update the env vars, and leave the old bucket up read-only so previously-posted URLs keep resolving.
