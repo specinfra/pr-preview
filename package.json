@@ -9,17 +9,17 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tobie/webidl-pr-preview.git"
+    "url": "git+https://github.com/specinfra/pr-preview.git"
   },
   "author": "Tobie Langel <tobie@codespeaks.com>",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/tobie/webidl-pr-preview/issues"
+    "url": "https://github.com/specinfra/pr-preview/issues"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "homepage": "https://github.com/tobie/webidl-pr-preview#readme",
+  "homepage": "https://github.com/specinfra/pr-preview#readme",
   "devDependencies": {
     "mocha": "^6.1.4",
     "supertest": "^7.1.4"
