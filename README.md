@@ -46,7 +46,7 @@ you **must** add a configuration file to the root of your repository.
 Nothing will happen until you do.
 
 Note that the following orgs have blanket install of pr-preview,
-which means that [adding a config file](https://tobie.github.io/pr-preview/config.html)
+which means that [adding a config file](https://specinfra.github.io/pr-preview/config.html)
 is all you need to be setup if your repository is hosted in one of them:
 
 * [github.com/w3c](https://github.com/w3c/)
@@ -57,7 +57,7 @@ is all you need to be setup if your repository is hosted in one of them:
 ## Configuration file
 
 _To test your own config file and turn it into a pull request,
-go to the [config page](https://tobie.github.io/pr-preview/config.html)._
+go to the [config page](https://specinfra.github.io/pr-preview/config.html)._
 
 You must configure PR Preview by adding a
 `.pr-preview.json` json file at the root of your repository
