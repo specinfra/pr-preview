@@ -2,17 +2,7 @@
 
 PR Preview is a small Node.js Express server that receives GitHub webhooks, builds spec previews, and uploads results to S3. It has no database and no persistent local state.
 
-It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js runtime. This document is the runbook for that deployment: what to provision, what to configure, and how to cut over from the old Heroku dyno.
-
-## What this move changes
-
-| | Before | After |
-| --- | --- | --- |
-| Host | Heroku | Clever Cloud (Node.js runtime) |
-| GitHub App | `pr-preview` | **unchanged** — same App, same App ID, same installations |
-| S3 buckets | default + WHATWG | **unchanged** — same buckets, same URLs, same fronting layer |
-
-Only the host moves. The GitHub App is not re-registered and the S3 buckets are not touched, so no repository owner has to reinstall anything and every preview URL already linked from an open PR keeps resolving. The single externally-visible change is the App's webhook URL.
+It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js runtime. This document describes what that deployment needs and how it is configured. The one-time move from the previous Heroku deployment is tracked separately, as a checklist issue.
 
 ## Requirements
 
@@ -29,24 +19,24 @@ PR Preview is delivered as a [GitHub App](https://docs.github.com/en/apps/creati
 
 The public listing is at https://github.com/apps/pr-preview and the owner-only settings page is at https://github.com/settings/apps/pr-preview. See the [README](README.md) for the user-facing view (what it does for a PR author/reviewer).
 
-We keep this App. All existing installations (w3c, whatwg, wicg, w3ctag, and individual repos) keep working with no action from repo owners.
+The App's **Webhook URL** (at https://github.com/settings/apps/pr-preview) must point at the running deployment: `https://<clever-cloud-host>/github-hook`. Everything else about the App — permissions, event subscriptions, installations, slug, icon, homepage — is independent of where the app is hosted.
 
-**What must change** (at https://github.com/settings/apps/pr-preview):
+**Credentials the deployment needs:**
 
-- **Webhook URL** → `https://<clever-cloud-host>/github-hook`
-
-**What must be re-supplied to Clever Cloud** (the same values Heroku used):
-
-- `GITHUB_INTEGRATION_ID` — the numeric App ID at the top of the App settings page. Never changes.
+- `GITHUB_INTEGRATION_ID` — the numeric App ID at the top of the App settings page.
 - `GITHUB_INTEGRATION_KEY` — PEM contents of a private key. Existing keys stay valid; re-use the current one or generate a fresh one under "Private keys" and delete the old.
 - `GITHUB_SECRET` — the webhook signing secret. Must match whatever is set on the App settings page.
 - `GITHUB_TOKEN` — personal access token used as a fallback for unauthenticated calls.
 
-**What does not change:** permissions, event subscriptions, installations, App slug/icon/homepage.
+Of these, only `GITHUB_INTEGRATION_ID` is fixed; it is displayed on the App settings page and never changes. The other three can be regenerated at any time if they are lost or need rotating.
 
 ### Rotating the secrets
 
-The migration is a natural point to rotate `GITHUB_INTEGRATION_KEY`, `GITHUB_SECRET`, and `GITHUB_TOKEN` so any credentials that leaked into Heroku's platform or logs are invalidated. If you rotate: generate the new values, put them in Clever Cloud's env, cut over the Webhook URL, then delete the old private key entry and revoke the old token.
+Any of the three can be replaced without touching installations or permissions, so no repository owner is affected. This is both the recovery path when a value has been lost and the procedure for routine rotation.
+
+- `GITHUB_INTEGRATION_KEY` — generate a fresh private key under **Private keys** on the App settings page. Existing keys stay valid, so delete the old entry only once the deployment is serving with the new one.
+- `GITHUB_SECRET` — set a new webhook secret on the same page and put the identical value in the app's environment. These two must match or every delivery is rejected, so change them close together.
+- `GITHUB_TOKEN` — issue a new personal access token from the operator's account and revoke the old one.
 
 ### App configuration reference
 
@@ -81,14 +71,16 @@ Required S3 permissions on each bucket for the credentials in use:
 
 Objects should be publicly readable (previews are served directly to browsers from the URLs above), typically via a bucket policy that grants `s3:GetObject` to `*`.
 
-Nothing about the host move requires touching S3. Both buckets stay exactly where they are; the six `AWS_*` / `WHATWG_AWS_*` env vars are simply re-supplied to Clever Cloud. No object copy, no DNS change, no fronting-layer change.
+The buckets are independent of where the app runs: moving hosts needs no object copy, no DNS change and no fronting-layer change, only the six `AWS_*` / `WHATWG_AWS_*` variables in the new environment.
 
 Two knobs worth knowing about, neither of which this move uses:
 
 - Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to disable the WHATWG bucket path entirely and route every PR through the default bucket — useful if you don't have WHATWG credentials.
 - Moving a bucket to a different AWS account is a copy + cutover, not a transfer (S3 bucket ownership cannot be reassigned): create a bucket in the destination account, `aws s3 sync` the objects over, reapply the public-read policy and CORS, repoint any fronting layer, update the env vars, and leave the old bucket up read-only so previously-posted URLs keep resolving.
 
-**Optional credential rotation.** As with the GitHub secrets, the migration is a good time to rotate the IAM access keys so any keys leaked into Heroku's platform or logs are invalidated: issue new keys for the same IAM users, put them in Clever Cloud's env, cut over, then deactivate the old keys.
+**Recovering and rotating the credentials.** IAM secret access keys cannot be read back out of AWS. If `AWS_SECRET_ACCESS_KEY` or `WHATWG_AWS_SECRET_ACCESS_KEY` is lost, or needs rotating, issue new access keys for the same IAM users and deactivate the old pairs. That changes nothing about the buckets, their contents, or their policies.
+
+The two bucket variables are not secrets and can be read off existing infrastructure if they are lost: `AWS_BUCKET_NAME` is the bucket in the S3 console, and `WHATWG_AWS_BUCKET_NAME` is the hostname serving WHATWG previews — visible in the preview URL of any recent `whatwg` PR comment.
 
 ## Clever Cloud
 
@@ -152,7 +144,7 @@ Set this in the **Scalability** panel. Two things need changing from the default
 - **Exactly one instance.** Set minimum and maximum instances both to 1 and leave horizontal auto-scaling off. The controller keeps its job queue, its `currently_running` de-duplication set, and its previewer cache in process memory (`lib/controller.js:11-16`). A second instance would not see the first one's in-flight jobs, so the same PR could be built twice concurrently and the two runs would race to update the PR body.
 - **Flavor: size for memory and scratch disk, not compute.** The app is not CPU-bound. Every spec build happens on a remote service — Spec Generator, the HTML Diff service, Wattsi Server (`lib/services.js`) — so the process spends most of its life waiting on HTTP. What it consumes locally is memory (whole rendered specs are held as strings) and scratch disk: for a WHATWG PR it unzips two complete HTML spec builds into `os.tmpdir()` and runs `diff -qr` across them (`lib/wattsi-client.js:138-171`).
 
-  The right baseline is whatever dyno size Heroku runs today; copy it and adjust. Absent that, `S` is a reasonable starting point. Avoid `pico` and `nano` regardless — their reduced CPU priority makes latency unpredictable for something that has to answer a webhook promptly. Watch memory and disk during the first few WHATWG PRs, which are the heaviest thing the app does, and size up if either is tight.
+  `S` is a reasonable starting point; if the size of the previous Heroku dyno is known, match it and adjust from there. Avoid `pico` and `nano` regardless — their reduced CPU priority makes latency unpredictable for something that has to answer a webhook promptly. Watch memory and disk during the first few WHATWG PRs, which are the heaviest thing the app does, and size up if either is tight.
 
 The filesystem is ephemeral — each deploy or restart gets a fresh VM. That is fine here: the only local writes are that scratch space, and nothing is expected to survive. No FS Bucket add-on is needed.
 
@@ -221,25 +213,6 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 - `DISPLAY_STACK_TRACES` — set to `yes` to include stack traces in logs
 - `DEBUG_SIMPLE_GITHUB` — set to `yes` to enable GitHub API debugging
 - `DEBUG_WATTSI` — set to `yes` to log Wattsi client output
-
-## Cutover
-
-1. Create and configure the Clever Cloud app: env vars, `PORT=8080`, `CC_NODE_VERSION`, exactly one instance, and a flavor sized per [Instance sizing and scaling](#instance-sizing-and-scaling).
-2. Add the domain and confirm TLS is live (`curl -I https://<host>/` — a 404 is the expected answer, since there is no `GET` route; what matters is that the TLS handshake succeeds and the response comes from the app).
-3. Deploy and confirm the app boots, watching the **Logs** panel.
-4. Smoke-test the webhook endpoint before pointing GitHub at it. With `NODE_ENV=production` the signature check is enforced, so an unsigned POST is rejected — that rejection is itself the signal that the app is up and verifying:
-   ```
-   curl -i -X POST https://<host>/github-hook -H 'Content-Type: application/json' -d '{}'
-   ```
-5. Point the GitHub App's webhook URL at `https://<host>/github-hook`.
-6. Verify a delivery in the GitHub App's Advanced tab — it should return 200 with an ISO timestamp body.
-7. Update the form action in [`docs/config.html`](docs/config.html) (line 61) from `https://pr-preview.herokuapp.com/config` to `https://<host>/config`, and ship that change.
-8. Trigger a real PR event on a repository that has a `.pr-preview.json` file and confirm the comment updates.
-9. Test a `whatwg`-owned PR separately. It is the only path that uses the second bucket, and the only one that downloads, unzips and diffs full HTML spec builds on the instance — so it is where a missing `unzip`, a too-small flavor, or bad `WHATWG_AWS_*` credentials will show up, and none of those fail anywhere else.
-10. Replay anything missed during the switchover by setting `STARTUP_QUEUE` and restarting the app from the Console, or by pushing an empty commit to the affected PRs.
-11. Leave the Heroku dyno up but idle for a grace period, then decommission it. Rotate any credentials that were only ever stored there.
-
-**Rollback:** point the webhook URL back at the Heroku app. Nothing else is shared state — both hosts write to the same buckets under the same keys — so switching back is just the one setting, for as long as the Heroku app still exists.
 
 ## Local development
 
