@@ -6,7 +6,7 @@ It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js 
 
 ## Requirements
 
-- Node.js 20 or newer (see `engines` in `package.json`)
+- Node.js 20 or 22 — **not 24 or newer** (see `engines` in `package.json`). `jsonwebtoken@8` pulls in `buffer-equal-constant-time`, which reads `SlowBuffer.prototype` at module load; `SlowBuffer` was removed in Node 24, so the process throws while requiring `jsonwebtoken` at [`lib/auth.js:3`](lib/auth.js) and dies before Express binds — no "listening" line, just a `TypeError` stack. Upgrading `jsonwebtoken` does not lift the bound: 9.x resolves to the same `jwa@1.4.1` → `buffer-equal-constant-time@1.0.1`, which has no released fix.
 - A public HTTPS endpoint for GitHub to POST webhooks to (Clever Cloud provides one)
 - The existing AWS S3 buckets and their credentials
 - The existing GitHub App credentials
@@ -108,7 +108,9 @@ The Node.js runtime needs almost nothing from us:
 - **Start command** — the runtime runs `scripts.start` from `package.json`, which is `node index.js`. No `CC_RUN_COMMAND` needed.
 - **Dependencies** — installed at build time from `package.json`. Dev dependencies (`mocha`, `supertest`) are *not* installed by default, which is what we want; leave `CC_NODE_DEV_DEPENDENCIES` unset.
 - **Build step** — there is none (no `build` script), so nothing runs between install and start.
-- **Node version** — pin it explicitly rather than drifting with the platform default, by setting `CC_NODE_VERSION` to `22` alongside the other environment variables.
+- **Node version** — set `CC_NODE_VERSION` to `22` alongside the other environment variables. The `engines` range in `package.json` carries the upper bound (see [Requirements](#requirements)), but pin this too rather than relying on the platform to honour it: with an open-ended range the platform resolves to the newest Node available, which is how a deployment ends up on a version the app cannot run on.
+
+  **Changing it takes a rebuild, not a plain restart.** The Node version is baked in at build time, so a restart re-injects the variable into an image still carrying the old Node — the logs report the old version and the change looks like it did not apply. Use *rebuild and restart* from the application header, and confirm the expected `Node.js v22.x` in the Logs panel.
 
 ### Port
 
@@ -206,7 +208,7 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 
 ### Clever Cloud platform variables
 
-- `CC_NODE_VERSION` — Node.js version to run (pin to `22`)
+- `CC_NODE_VERSION` — Node.js version to run (pin to `22`; must be below 24 — see [Requirements](#requirements))
 - `CC_NODE_DEV_DEPENDENCIES` — leave unset; dev dependencies are not installed by default
 - `CC_RUN_COMMAND` — not needed; the runtime uses `npm start`
 
