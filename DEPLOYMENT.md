@@ -106,7 +106,7 @@ Pick **GitHub** if you want merges to ship themselves, **local** if you want the
 
 Then select **Node.js** as the runtime, and size the instance on the next screen (see [Instance sizing and scaling](#instance-sizing-and-scaling) — the defaults are not what this app wants). The creation flow offers to set environment variables before the first build; you can do that now or leave it and use the panel afterwards, but the app will fail to boot usefully until they are set.
 
-The branch that GitHub deployments track defaults to `master`. This repository's default branch is `main`, so set it explicitly in the **Information** panel after creation, or the app will sit at whatever `master` happens to be.
+**Set the deployment branch to `main`** in the **Information** panel after creation. Clever Cloud tracks a branch named `master` by default, and this repository does not have one — its default branch is `main` — so leaving the default configured means pushes trigger nothing at all.
 
 ### Build and start
 
