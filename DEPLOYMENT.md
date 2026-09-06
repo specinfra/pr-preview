@@ -2,7 +2,7 @@
 
 PR Preview is a small Node.js Express server that receives GitHub webhooks, builds spec previews, and uploads results to S3. It has no database and no persistent local state.
 
-It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js runtime. This document describes what that deployment needs and how it is configured. The one-time move from the previous Heroku deployment is tracked separately, as a checklist issue.
+It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js runtime. This document describes what that deployment needs and how it is configured. The one-time move from the previous Heroku deployment is tracked in [#194](https://github.com/specinfra/pr-preview/issues/194).
 
 ## Requirements
 
