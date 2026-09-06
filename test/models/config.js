@@ -204,7 +204,7 @@ suite("Config.request dismissal reasons", function() {
     const rejectingPR = err => ({ request: () => Promise.reject(err) });
     const resolvingPR = file => ({ request: () => Promise.resolve(file) });
 
-    test("a failed fetch says which file, where, and why", function() {
+    test("a missing config reads as an opt-out, not a failure", function() {
         const err = new Error("Not Found");
         err.url = "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json";
 
@@ -213,9 +213,21 @@ suite("Config.request dismissal reasons", function() {
             err => {
                 assert.equal(err.noConfig, true);
                 assert.equal(err.dismissalReason,
-                    "couldn't read .pr-preview.json from " +
-                    "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json: Not Found");
+                    "no .pr-preview.json, repo hasn't opted into previews");
             }
+        );
+    });
+
+    test("a fetch that failed for another reason says which file, where, and why", function() {
+        const err = new Error("API rate limit exceeded");
+        err.url = "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json";
+
+        return new Config(rejectingPR(err)).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => assert.equal(err.dismissalReason,
+                "couldn't read .pr-preview.json from " +
+                "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json: " +
+                "API rate limit exceeded")
         );
     });
 
