@@ -91,26 +91,22 @@ Two knobs worth knowing about, neither of which this move uses:
 
 ## Clever Cloud
 
-### Prerequisites
+The app is set up and operated from the [Console](https://console.clever-cloud.com/). Everything below is done there; no CLI or local tooling is required.
 
-Install and authenticate the CLI ([clever-tools](https://github.com/CleverCloud/clever-tools)):
-
-```
-npm install -g clever-tools
-clever login
-```
-
-Everything below can also be done from the [Console](https://console.clever-cloud.com/); the CLI is used here because it is copy-pasteable.
+Panel names are as they appear in the left-hand navigation once you open the application.
 
 ### Create the application
 
-From a clone of this repository:
+**Create → an application**, then choose how the code gets there:
 
-```
-clever create --type node pr-preview
-```
+- **From a GitHub repository** — link the GitHub account or organisation that owns `specinfra/pr-preview` and pick the repository. Clever Cloud installs a webhook, and **every push to the selected branch redeploys the app**. Convenient, but note what it implies: merging a PR to that branch ships to production immediately, with no separate deploy step.
+- **From a local repository** — Clever Cloud gives you a git remote to push to, and nothing deploys until someone pushes to it deliberately.
 
-That creates the app, links it to the working directory (writing `.clever.json`), and provisions a git remote. To attach to an app someone else already created, use `clever link <app_id>` instead.
+Pick **GitHub** if you want merges to ship themselves, **local** if you want the merge and the deploy to be separate decisions. Either can be changed later.
+
+Then select **Node.js** as the runtime, and size the instance on the next screen (see [Instance sizing and scaling](#instance-sizing-and-scaling) — the defaults are not what this app wants). The creation flow offers to set environment variables before the first build; you can do that now or leave it and use the panel afterwards, but the app will fail to boot usefully until they are set.
+
+The branch that GitHub deployments track defaults to `master`. This repository's default branch is `main`, so set it explicitly in the **Information** panel after creation, or the app will sit at whatever `master` happens to be.
 
 ### Build and start
 
@@ -119,95 +115,69 @@ The Node.js runtime needs almost nothing from us:
 - **Start command** — the runtime runs `scripts.start` from `package.json`, which is `node index.js`. No `CC_RUN_COMMAND` needed.
 - **Dependencies** — installed at build time from `package.json`. Dev dependencies (`mocha`, `supertest`) are *not* installed by default, which is what we want; leave `CC_NODE_DEV_DEPENDENCIES` unset.
 - **Build step** — there is none (no `build` script), so nothing runs between install and start.
-- **Node version** — pin it explicitly rather than drifting with the platform default:
-
-```
-clever env set CC_NODE_VERSION 22
-```
+- **Node version** — pin it explicitly rather than drifting with the platform default, by setting `CC_NODE_VERSION` to `22` alongside the other environment variables.
 
 ### Port
 
-**Clever Cloud only routes traffic to port 8080.** `index.js` reads `process.env.PORT` and falls back to `5000`, so `PORT` must be set explicitly:
-
-```
-clever env set PORT 8080
-```
+**Clever Cloud only routes traffic to port 8080.** `index.js` reads `process.env.PORT` and falls back to `5000`, so `PORT` must be set to `8080` in the environment variables — this is not optional and there is no platform default that rescues it.
 
 Express binds all interfaces by default, which satisfies the platform's requirement that the app listen on `0.0.0.0:8080`.
 
 ### Environment variables
 
-Set them with `clever env set <NAME> <value>`, one per variable. See the [full list](#environment-variables-reference) below.
+The **Environment variables** panel has two editors, and the toggle between them matters here:
 
-`GITHUB_INTEGRATION_KEY` is the awkward one: it is a multi-line PEM, including the `-----BEGIN`/`-----END` lines. Multi-line values are supported, but passing one as a shell argument is error-prone. Import the whole set from a JSON file instead, escaping newlines as `\n`:
+- The **simple editor** takes one name/value pair per row. Multi-line values work — paste the value into the field and the newlines are kept.
+- **Expert mode** is a single text area in `NAME="value"` format, which lets you paste the whole set at once. **Multi-line values must be quoted** in this mode.
 
-```json
-[
-  { "name": "GITHUB_INTEGRATION_KEY", "value": "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n" },
-  { "name": "GITHUB_INTEGRATION_ID", "value": "12345" }
-]
-```
+See the [full list](#environment-variables-reference) below for what to set.
+
+`GITHUB_INTEGRATION_KEY` is the awkward one: it is a multi-line PEM, including the `-----BEGIN`/`-----END` lines. Paste it complete, with its line breaks intact — either into the simple editor's value field, or quoted in expert mode:
 
 ```
-cat env.json | clever env import --json
+GITHUB_INTEGRATION_KEY="-----BEGIN RSA PRIVATE KEY-----
+MIIE...
+-----END RSA PRIVATE KEY-----"
 ```
 
-Do not commit that file — write it outside the repository, or delete it once imported.
+A PEM whose newlines were flattened produces JWT signing failures at the first webhook, not at boot, so this fails late and looks like a GitHub API problem rather than a config one. After saving, reopen the panel and check the value still spans multiple lines.
 
-After importing, confirm the key survived intact: a PEM whose newlines were flattened produces JWT signing failures at the first webhook, not at boot, so this fails late and looks like a GitHub API problem.
+Changes take effect on restart, not on save — the panel will offer to restart the app.
 
 ### Instance sizing and scaling
 
-**Run exactly one instance.** The controller keeps its job queue, its `currently_running` de-duplication set, and its previewer cache in process memory (`lib/controller.js:11-16`). A second instance would not see the first one's in-flight jobs, so the same PR could be built twice concurrently and the two runs would race to update the PR body. Do not enable autoscaling.
+Set this in the **Scalability** panel. Two things need changing from the defaults:
 
-```
-clever scale --flavor S --min-instances 1 --max-instances 1
-```
+- **Exactly one instance.** Set minimum and maximum instances both to 1 and leave horizontal auto-scaling off. The controller keeps its job queue, its `currently_running` de-duplication set, and its previewer cache in process memory (`lib/controller.js:11-16`). A second instance would not see the first one's in-flight jobs, so the same PR could be built twice concurrently and the two runs would race to update the PR body.
+- **Flavor `S` or larger.** Avoid `pico` and `nano`: they run at reduced CPU priority and can be starved when the hypervisor is busy. Spec builds are long-running and the WHATWG/HTML path writes a full checkout to scratch space under `os.tmpdir()` (`lib/wattsi-client.js:25`), so the app needs real CPU and disk headroom. Size up if HTML builds time out.
 
-Avoid the `pico` and `nano` flavors: they run at reduced CPU priority and can be starved when the hypervisor is busy. Spec builds are long-running and the WHATWG/HTML path writes a full checkout to scratch space under `os.tmpdir()` (`lib/wattsi-client.js:25`), so give the app real CPU and disk headroom. Size up from `S` if HTML builds time out.
-
-The filesystem is ephemeral — each deploy or restart gets a fresh VM. That is fine here: the only local writes are that scratch space, and nothing is expected to survive. No FS Bucket is needed.
+The filesystem is ephemeral — each deploy or restart gets a fresh VM. That is fine here: the only local writes are that scratch space, and nothing is expected to survive. No FS Bucket add-on is needed.
 
 The corollary is that **a restart drops in-flight and queued jobs**. Deploy during quiet periods, and use `STARTUP_QUEUE` (see below) to replay any PRs that were dropped.
 
 ### Domain and TLS
 
-The app gets a `*.cleverapps.io` subdomain with working TLS out of the box, which is enough to test the webhook before any DNS change. For a stable public name, add a custom domain:
-
-```
-clever domain add pr-preview.example.org
-```
+The app gets a `*.cleverapps.io` subdomain with working TLS out of the box, which is enough to test the webhook before any DNS change. For a stable public name, add a custom domain in the **Domain names** panel and point a DNS record at the app.
 
 Clever Cloud requests and renews a Let's Encrypt certificate automatically. **It only attempts issuance during the first 3 days after the domain is added** — so point DNS at the app first, or at least within that window. If the certificate never appears, remove the domain and re-add it to restart the window.
 
 Whichever hostname you settle on is the one that goes in the GitHub App's webhook URL, so decide before cutting over: moving the webhook URL twice means two windows where deliveries fail.
 
-### Deploy
+### Deploy and operate
 
-```
-clever deploy
-```
+How a deploy is triggered depends on the choice made at creation: a push to the tracked branch for a GitHub-linked app, or a push to the Clever Cloud git remote for a local-repository one. Either way the Console drives the rest.
 
-This pushes the current branch and triggers a build. Equivalently, add the remote by hand and push to its `master` branch:
+- **Deployments** shows build and deploy history, including failures.
+- **Logs** streams build and application output. A successful boot logs `Express server listening on port 8080 in production mode`.
+- The application header carries **restart** controls — a plain restart, and a rebuild-and-restart that redoes the build from the current commit. Use the plain restart after an environment-variable change.
 
-```
-git remote add clever git+ssh://git@push.clever-cloud.com/<app_id>.git
-git push clever main:master
-```
+If a deploy is marked unhealthy even though the app logged that it is listening, check the health-check configuration: this app exposes no `GET` route at all — only `POST /github-hook` and `POST /config` — so an HTTP health check against `/` will not get a 2xx.
 
-Watch the build and the running app with:
-
-```
-clever logs
-```
-
-A successful boot logs `Express server listening on port 8080 in production mode`. Other useful commands: `clever status` (current state), `clever restart` (restart without redeploying).
-
-If a deploy is marked unhealthy even though the app logged that it is listening, check the health-check configuration in the Console: this app exposes no `GET` route at all — only `POST /github-hook` and `POST /config` — so an HTTP health check against `/` will not get a 2xx.
+The [`clever-tools` CLI](https://github.com/CleverCloud/clever-tools) offers the same operations from a terminal (`clever logs`, `clever restart`, `clever env`) if that is ever preferable for day-to-day work. It is not needed for any step in this document.
 
 ## Environment variables reference
 
-Set these with `clever env set` / `clever env import`, or in the Console under the app's "Environment variables" tab.
+Set these in the Console, under the application's **Environment variables** panel.
 
 ### GitHub App credentials (required)
 
@@ -253,16 +223,16 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 
 1. Create and configure the Clever Cloud app: env vars, `PORT=8080`, `CC_NODE_VERSION`, one instance, flavor `S`.
 2. Add the domain and confirm TLS is live (`curl -I https://<host>/` — a 404 is the expected answer, since there is no `GET` route; what matters is that the TLS handshake succeeds and the response comes from the app).
-3. Deploy and confirm the app boots (`clever logs`).
+3. Deploy and confirm the app boots, watching the **Logs** panel.
 4. Smoke-test the webhook endpoint before pointing GitHub at it. With `NODE_ENV=production` the signature check is enforced, so an unsigned POST is rejected — that rejection is itself the signal that the app is up and verifying:
    ```
    curl -i -X POST https://<host>/github-hook -H 'Content-Type: application/json' -d '{}'
    ```
 5. Point the GitHub App's webhook URL at `https://<host>/github-hook`.
 6. Verify a delivery in the GitHub App's Advanced tab — it should return 200 with an ISO timestamp body.
-7. Update the form action in [`docs/config.html`](docs/config.html) (line 61) from `https://pr-preview.herokuapp.com/config` to `https://<host>/config`, and deploy that change.
+7. Update the form action in [`docs/config.html`](docs/config.html) (line 61) from `https://pr-preview.herokuapp.com/config` to `https://<host>/config`, and ship that change.
 8. Trigger a real PR event on a repository that has a `.pr-preview.json` file and confirm the comment updates.
-9. Replay anything missed during the switchover by setting `STARTUP_QUEUE` and restarting, or by pushing an empty commit to the affected PRs.
+9. Replay anything missed during the switchover by setting `STARTUP_QUEUE` and restarting the app from the Console, or by pushing an empty commit to the affected PRs.
 10. Leave the Heroku dyno up but idle for a grace period, then decommission it. Rotate any credentials that were only ever stored there.
 
 **Rollback:** point the webhook URL back at the Heroku app. Nothing else is shared state — both hosts write to the same buckets under the same keys — so switching back is just the one setting, for as long as the Heroku app still exists.
