@@ -25,13 +25,13 @@
     "supertest": "^7.1.4"
   },
   "dependencies": {
+    "@snyk/express-x-hub": "^1.2.0",
     "aws-sdk": "^2.441.0",
     "body-parser": "^1.18.3",
     "dateformat": "^3.0.3",
     "emu-algify": "^2.2.0",
     "entities": "2.0.1",
-    "express": "^4.16.4",
-    "@snyk/express-x-hub": "^1.2.0",
+    "express": "^4.22.2",
     "jsonwebtoken": "^8.5.1",
     "mkdirp-promise": "^5.0.1",
     "mustache": "3.2.0",
