@@ -199,3 +199,80 @@ suite("Config.request", function() {
     });
 });
 
+
+suite("Config.request dismissal reasons", function() {
+    const rejectingPR = err => ({ request: () => Promise.reject(err) });
+    const resolvingPR = file => ({ request: () => Promise.resolve(file) });
+
+    test("a missing config reads as an opt-out, not a failure", function() {
+        const err = new Error("Not Found");
+        err.url = "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json";
+
+        return new Config(rejectingPR(err)).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => {
+                assert.equal(err.noConfig, true);
+                assert.equal(err.dismissalReason,
+                    "no .pr-preview.json, repo hasn't opted into previews");
+            }
+        );
+    });
+
+    test("a fetch that failed for another reason says which file, where, and why", function() {
+        const err = new Error("API rate limit exceeded");
+        err.url = "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json";
+
+        return new Config(rejectingPR(err)).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => assert.equal(err.dismissalReason,
+                "couldn't read .pr-preview.json from " +
+                "https://api.github.com/repos/w3c/wcag/contents/.pr-preview.json: " +
+                "API rate limit exceeded")
+        );
+    });
+
+    test("a failed fetch without a url still names the file", function() {
+        return new Config(rejectingPR(new Error("Bad credentials"))).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => assert.equal(err.dismissalReason,
+                "couldn't read .pr-preview.json: Bad credentials")
+        );
+    });
+
+    test("a directory where the config should be says so", function() {
+        return new Config(resolvingPR({ type: "dir" })).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => {
+                assert.equal(err.noConfig, true);
+                assert.equal(err.dismissalReason, ".pr-preview.json is a dir, not a file");
+            }
+        );
+    });
+
+    test("an invalid config says what the schema rejected", function() {
+        const content = Buffer.from(JSON.stringify({
+            src_file: "index.bs",
+            type: "nope"
+        })).toString("base64");
+
+        return new Config(resolvingPR({ type: "file", content })).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => {
+                assert.equal(err.noConfig, true);
+                assert(err.dismissalReason.startsWith(".pr-preview.json is invalid at /type:"),
+                    `Unexpected reason: ${err.dismissalReason}`);
+            }
+        );
+    });
+
+    test("unparseable JSON is a real error, not a dismissal", function() {
+        return new Config(resolvingPR({ type: "file", content: "invalid-base64-content" })).request().then(
+            _ => assert.fail("Should have thrown an error"),
+            err => {
+                assert(!err.noConfig, "Broken JSON should be reported, not dismissed");
+                assert(err.message.startsWith(".pr-preview.json is not valid JSON:"),
+                    `Unexpected message: ${err.message}`);
+            }
+        );
+    });
+});
