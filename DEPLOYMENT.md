@@ -60,8 +60,8 @@ If the App should also change hands (e.g. to a new maintainer or an org account)
 
 PR Preview writes preview and diff HTML to S3 and serves the resulting URLs from the PR comment. It uses **two** buckets, dispatched at runtime by the PR owner (see `lib/models/pr.js:200` and `lib/cache.js`):
 
-1. **Default bucket** — used for every repo *except* those owned by `whatwg`. Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`; bucket name comes from `AWS_BUCKET_NAME`. Preview URLs are direct S3 URLs: `https://<bucket>.s3.amazonaws.com/<key>`.
-2. **WHATWG bucket** — used only when the PR owner is `whatwg`. Credentials come from `WHATWG_AWS_ACCESS_KEY_ID` / `WHATWG_AWS_SECRET_ACCESS_KEY`; bucket "name" comes from `WHATWG_AWS_BUCKET_NAME`. **This env var holds a hostname, not a plain S3 bucket name** — the URL is built as `https://<WHATWG_AWS_BUCKET_NAME>/<key>` (see `lib/cache.js:17-20`). In production this hostname points at the bucket through a fronting layer (CloudFront distribution and/or a Route 53 alias) so that WHATWG-hosted previews live under a WHATWG-owned domain.
+1. **Default bucket** — used for every repo *except* those owned by `whatwg`. Credentials come from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`; bucket name comes from `AWS_BUCKET_NAME`. Preview URLs are direct S3 URLs: `https://<bucket>.s3.amazonaws.com/<key>`, unless `AWS_BUCKET_URL` is set, in which case they are built as `<AWS_BUCKET_URL>/<key>` so the bucket can sit behind a custom domain or CDN.
+2. **WHATWG bucket** — used only when the PR owner is `whatwg`. Credentials come from `WHATWG_AWS_ACCESS_KEY_ID` / `WHATWG_AWS_SECRET_ACCESS_KEY`; bucket "name" comes from `WHATWG_AWS_BUCKET_NAME`. **This env var holds a hostname, not a plain S3 bucket name** — the URL is built as `https://<WHATWG_AWS_BUCKET_NAME>/<key>` (see `lib/cache.js:25-27`). In production this hostname points at the bucket through a fronting layer (CloudFront distribution and/or a Route 53 alias) so that WHATWG-hosted previews live under a WHATWG-owned domain.
 
 Required S3 permissions on each bucket for the credentials in use:
 
@@ -76,6 +76,7 @@ The buckets are independent of where the app runs: moving hosts needs no object 
 Two knobs worth knowing about, neither used by the current deployment:
 
 - Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to disable the WHATWG bucket path entirely and route every PR through the default bucket — useful if you don't have WHATWG credentials.
+- Set `AWS_BUCKET_URL` to serve the default bucket's previews from a custom host (a CloudFront distribution or a vanity domain) instead of the direct S3 URL. It is the origin and optional path prefix the keys hang off, with or without a trailing slash — e.g. `https://previews.example.org`. It changes only the URLs handed out, never where objects are written, so an existing deployment can adopt it without copying anything.
 - Moving a bucket to a different AWS account is a copy + cutover, not a transfer (S3 bucket ownership cannot be reassigned): create a bucket in the destination account, `aws s3 sync` the objects over, reapply the public-read policy and CORS, repoint any fronting layer, update the env vars, and leave the old bucket up read-only so previously-posted URLs keep resolving.
 
 **Recovering and rotating the credentials.** IAM secret access keys cannot be read back out of AWS. If `AWS_SECRET_ACCESS_KEY` or `WHATWG_AWS_SECRET_ACCESS_KEY` is lost, or needs rotating, issue new access keys for the same IAM users and deactivate the old pairs. That changes nothing about the buckets, their contents, or their policies.
@@ -190,6 +191,7 @@ Set these in the Console, under the application's **Environment variables** pane
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_BUCKET_NAME`
+- `AWS_BUCKET_URL` — optional; public base URL serving this bucket, used in place of `https://<AWS_BUCKET_NAME>.s3.amazonaws.com`
 
 ### AWS credentials for the WHATWG bucket
 
