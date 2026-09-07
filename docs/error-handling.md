@@ -113,8 +113,8 @@ controller copies into `error.data.errors` so it shows up too.
 ### What the log sees
 
 The logger lives in `lib/logger.js` and is [pino](https://getpino.io).
-Every record is named `pr-preview` and says what it is about in fields;
-the message is the readable sentence. `index.js` hands the logger to the
+Every record says what it is about in fields; the message is the
+readable sentence. `index.js` hands the logger to the
 controller and the Express app; modules that log on their own (the S3
 cache, the fetch and file mixins, the spec-diff model, the include
 scanner, the config model, the Wattsi client) use it directly, bound to a
@@ -137,15 +137,15 @@ dismissed or a request refused, `error` is a real failure. `LOG_LEVEL`
 (default `info`) sets the threshold, so the chatter is off unless asked
 for.
 
-By default the log is pretty-printed: each record is the level,
-`(pr-preview)`, then `<pr> (<action>): <message>` for a job, with error
-detail indented beneath. Fields the line already conveys aren't repeated
+By default the log is pretty-printed: each record is the level, then
+`<pr> (<action>): <message>` for a job, with error detail indented
+beneath. Fields the line already conveys aren't repeated
 under it, and there is no timestamp: the output is either watched live in
 a terminal or read through a log stream that stamps each line itself, as
 Clever Cloud's does. `LOG_FORMAT=json` writes newline-delimited JSON
 instead, one record per line with every field (`time` included), for a
 log collector. The examples below are the pretty-printed form with the
-level and name left out.
+level left out.
 
 ## The cases
 
