@@ -20,14 +20,6 @@ function fields(record) {
 
 suite("Logger", function() {
 
-    test("every record is named pr-preview", function() {
-        const log = memoryLogger();
-        log.info("hello");
-        jobLogger(log, JOB).info("hello");
-        log.child({ module: "s3" }).info("hello");
-        assert.deepEqual(log.records().map(r => r.name), ["pr-preview", "pr-preview", "pr-preview"]);
-    });
-
     test("a job logger binds the PR and the action", function() {
         const log = memoryLogger();
         jobLogger(log, JOB).info("hello");
@@ -51,10 +43,10 @@ suite("Logger", function() {
         logStatus(log, "warn", "ignored", undefined, { event: "ping" });
         const [skipped, ignored] = log.records().map(fields);
         assert.deepEqual(skipped, {
-            level: 30, name: "pr-preview", pr: JOB.url, action: "synchronize",
+            level: 30, pr: JOB.url, action: "synchronize",
             status: "skipped", reason: "already queued", msg: "skipped (already queued)"
         });
-        assert.deepEqual(ignored, { level: 40, name: "pr-preview", status: "ignored", event: "ping", msg: "ignored" });
+        assert.deepEqual(ignored, { level: 40, status: "ignored", event: "ping", msg: "ignored" });
     });
 
     suite("logResult", function() {
@@ -154,8 +146,9 @@ suite("Logger", function() {
 
     suite("pretty printing (the default)", function() {
         const pretty = config => memoryLogger(Object.assign({ logFormat: "pretty" }, config));
-        // No timestamp: the terminal is live and a log stream stamps lines itself.
-        const LINE = /^(DEBUG|INFO|WARN|ERROR) \(pr-preview\): (.*)$/;
+        // No timestamp (the terminal is live and a log stream stamps lines
+        // itself) and no name: the process is the whole app.
+        const LINE = /^(DEBUG|INFO|WARN|ERROR): (.*)$/;
         const body = line => {
             const match = LINE.exec(line);
             assert(match, line);
