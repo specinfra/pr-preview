@@ -25,7 +25,7 @@ building the PR ends up in the result it resolves to:
 
 ```js
 {
-    job,                     // { id, installation_id, url, forcedUpdate }
+    job,                     // { id: "owner/repo/number", url, installation_id, forcedUpdate }
     success,                 // true when the build ran to completion
     requeue,                 // true when the job should be run again
     config,                  // the parsed .pr-preview.json, once loaded
@@ -121,16 +121,18 @@ functions:
   then the stack when `DISPLAY_STACK_TRACES=yes`. Every error the app
   prints goes through it.
 - `logResult(result, action)` prints one job's outcome, in the shapes
-  shown below.
+  shown below. Jobs are named by their GitHub URL so a line can be pasted
+  straight into a browser; `queueJob()` derives it from the
+  `owner/repo/number` id when the job didn't come with one.
 
 ## The cases
 
 ### Success
 
 ```
-w3c/wcag/5331: synchronize (updated)
-w3c/wcag/5331: synchronize (updated, body edited during build)
-w3c/wcag/5331: opened (not a live run, would have updated)
+https://github.com/org/repo/pull/42: synchronize (updated)
+https://github.com/org/repo/pull/42: synchronize (updated, body edited during build)
+https://github.com/org/repo/pull/42: opened (not a live run, would have updated)
 ```
 
 The parenthetical is `updated` in production, or a note that this wasn't a
@@ -141,10 +143,10 @@ and says so.
 ### Success with nothing to do
 
 ```
-w3c/wcag/5331: edited (no update: rendered body is already up to date)
-w3c/wcag/5331: synchronize (no update: no change to index.bs or the files it includes)
-w3c/wcag/5331: opened (no update: PR body opts out with <!-- no preview -->)
-w3c/wcag/5331: reopened (no update: PR is already merged)
+https://github.com/org/repo/pull/42: edited (no update: rendered body is already up to date)
+https://github.com/org/repo/pull/42: synchronize (no update: no change to index.bs or the files it includes)
+https://github.com/org/repo/pull/42: opened (no update: PR body opts out with <!-- no preview -->)
+https://github.com/org/repo/pull/42: reopened (no update: PR is already merged)
 ```
 
 `updateSkipReason()` names the condition. The first form means the build
@@ -155,10 +157,10 @@ from a startup queue entry) skips these checks.
 ### Dismissal: no usable config
 
 ```
-w3c/wcag/5331: opened (dismissed: no .pr-preview.json, repo hasn't opted into previews)
-w3c/wcag/5331: opened (dismissed: couldn't read .pr-preview.json from https://api.github.com/...: Bad credentials)
-w3c/wcag/5331: opened (dismissed: .pr-preview.json is a dir, not a file)
-w3c/wcag/5331: opened (dismissed: .pr-preview.json is invalid at /type: Data does not match any schemas from "oneOf")
+https://github.com/org/repo/pull/42: opened (dismissed: no .pr-preview.json, repo hasn't opted into previews)
+https://github.com/org/repo/pull/42: opened (dismissed: couldn't read .pr-preview.json from https://api.github.com/...: Bad credentials)
+https://github.com/org/repo/pull/42: opened (dismissed: .pr-preview.json is a dir, not a file)
+https://github.com/org/repo/pull/42: opened (dismissed: .pr-preview.json is invalid at /type: Data does not match any schemas from "oneOf")
 ```
 
 All raised by `lib/models/config.js` with the `noConfig` flag. The first is
@@ -175,7 +177,7 @@ is reported on the PR as a real error reading
 ### Dismissal: PR already merged
 
 ```
-w3c/wcag/5331: synchronize (dismissed: PR is already merged)
+https://github.com/org/repo/pull/42: synchronize (dismissed: PR is already merged)
 ```
 
 Raised by `PR.requestPR()` with the `prMerged` flag, as soon as the PR
@@ -185,7 +187,7 @@ caught by `updateSkipReason()` as a no-update case.)
 ### Dismissal: new commits during the build
 
 ```
-w3c/wcag/5331: synchronize (dismissed: new commits pushed during build, requeued)
+https://github.com/org/repo/pull/42: synchronize (dismissed: new commits pushed during build, requeued)
 ```
 
 Builds take a while. Before writing anything, `updateBody()` re-fetches
@@ -199,7 +201,7 @@ body instead (see "body edited during build" above).
 ### Real error, reported on the PR
 
 ```
-w3c/wcag/5331: synchronize (Error: 500 Internal Server Error)
+https://github.com/org/repo/pull/42: synchronize (Error: 500 Internal Server Error)
 { request_url: 'https://www.w3.org/publications/spec-generator/?...', service: { name: 'Spec Generator', ... } }
 ```
 
@@ -210,7 +212,7 @@ failed and where to take it.
 ### Real error, kept off the PR
 
 ```
-w3c/wcag/5331: synchronize (TypeError: Cannot read properties of undefined (reading 'sha'))
+https://github.com/org/repo/pull/42: synchronize (TypeError: Cannot read properties of undefined (reading 'sha'))
     Not reported on the PR: not a live run.
 ```
 
@@ -221,7 +223,7 @@ detail lines that follow are the same as for a reported error.
 ### Real error whose report could not be posted
 
 ```
-w3c/wcag/5331: synchronize (Error: 502 Bad Gateway)
+https://github.com/org/repo/pull/42: synchronize (Error: 502 Bad Gateway)
     Additionally, reporting it on the PR failed:
         Error: Bad credentials
 { request_url: 'https://services.w3.org/htmldiff?...', service: { name: 'HTML Diff Service', ... } }
@@ -238,11 +240,11 @@ and every delivery is acknowledged with a 200 and then logged with what it
 was and what was done with it:
 
 ```
-Ignoring pull_request "closed" event on w3c/wcag/5331: not an action we build on
-Ignoring pull_request "edited" event on w3c/wcag/5331: triggered by our own update
-Ignoring issue_comment "created" event on w3c/wcag#5331: only pull_request events are handled
+Ignoring pull_request "closed" event on https://github.com/org/repo/pull/42: not an action we build on
+Ignoring pull_request "edited" event on https://github.com/org/repo/pull/42: triggered by our own update
+Ignoring issue_comment "created" event on https://github.com/org/repo/issues/7: only pull_request events are handled
 Ignoring "ping" event: only pull_request events are handled (payload keys: zen, hook, ...)
-Skipping pull_request "synchronize" event on w3c/wcag/5331: already processing
+Skipping pull_request "synchronize" event on https://github.com/org/repo/pull/42: already processing
 ```
 
 Only `opened`, `edited`, `reopened` and `synchronize` pull_request events

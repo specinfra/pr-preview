@@ -41,3 +41,11 @@ suite("Dismissal reasons", function() {
         assert.throws(() => dismiss(new Error("boom"), "raceCondition"), TypeError);
     });
 });
+
+suite("PR URLs", function() {
+    const prUrl = require("../lib/utils/pr-url");
+
+    test("maps a job id to the PR's GitHub URL", function() {
+        assert.equal(prUrl("org/repo/42"), "https://github.com/org/repo/pull/42");
+    });
+});

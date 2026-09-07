@@ -46,6 +46,7 @@ suite("Startup queue", function() {
         const controller = {
             queue: [],
             queueJob(job) {
+                job.url = `https://github.com/a/b/pull/${job.id.split("/")[2]}`;
                 if (this.queue.some(j => j.id == job.id)) return { job, queued: false, skipReason: "already queued" };
                 this.queue.push(job);
                 return { job, queued: true, skipReason: null };
@@ -63,8 +64,8 @@ suite("Startup queue", function() {
         return processStartupQueue(queue, controller, l).then(() => {
             assert.deepEqual(handled, ["a/b/1", "a/b/2"]);
             assert.deepEqual(l.lines, [
-                "Queuing 3 startup jobs: a/b/1, a/b/2, a/b/1",
-                "Startup job a/b/1 skipped: already queued",
+                "Queuing 3 startup jobs: https://github.com/a/b/pull/1, https://github.com/a/b/pull/2, https://github.com/a/b/pull/1",
+                "Startup job https://github.com/a/b/pull/1 skipped: already queued",
                 "a/b/1: startup-queue",
                 "a/b/2: startup-queue"
             ]);

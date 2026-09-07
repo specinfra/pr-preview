@@ -190,7 +190,7 @@ suite('Server webhook logging', () => {
     test('names an ignored pull_request action', (done) => {
         const { app, lines } = appWithLog();
         request(app).post('/github-hook').send(prPayload('closed')).expect(200).end(err => {
-            assert.deepEqual(lines, ['Ignoring pull_request "closed" event on test/repo/123: not an action we build on']);
+            assert.deepEqual(lines, ['Ignoring pull_request "closed" event on https://github.com/test/repo/pull/123: not an action we build on']);
             done(err);
         });
     });
@@ -198,7 +198,7 @@ suite('Server webhook logging', () => {
     test('names an event triggered by its own update', (done) => {
         const { app, lines } = appWithLog();
         request(app).post('/github-hook').send(prPayload('edited', 'pr-preview[bot]')).expect(200).end(err => {
-            assert.deepEqual(lines, ['Ignoring pull_request "edited" event on test/repo/123: triggered by our own update']);
+            assert.deepEqual(lines, ['Ignoring pull_request "edited" event on https://github.com/test/repo/pull/123: triggered by our own update']);
             done(err);
         });
     });
@@ -212,7 +212,7 @@ suite('Server webhook logging', () => {
             repository: { full_name: 'test/repo' }
         };
         request(app).post('/github-hook').send(payload).expect(200).end(err => {
-            assert.deepEqual(lines, ['Ignoring issue_comment "created" event on test/repo#7: only pull_request events are handled']);
+            assert.deepEqual(lines, ['Ignoring issue_comment "created" event on https://github.com/test/repo/issues/7: only pull_request events are handled']);
             done(err);
         });
     });
@@ -232,7 +232,7 @@ suite('Server webhook logging', () => {
         const { app, lines, controller } = appWithLog();
         controller.currently_running.add('test/repo/123');
         request(app).post('/github-hook').send(prPayload('synchronize')).expect(200).end(err => {
-            assert.deepEqual(lines, ['Skipping pull_request "synchronize" event on test/repo/123: already processing']);
+            assert.deepEqual(lines, ['Skipping pull_request "synchronize" event on https://github.com/test/repo/pull/123: already processing']);
             done(err);
         });
     });
