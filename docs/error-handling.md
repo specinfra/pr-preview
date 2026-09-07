@@ -236,16 +236,19 @@ stack too.
 ## Errors outside the job path
 
 **Webhook handler** (`POST /github-hook`). Nothing here throws by design,
-and every delivery is acknowledged with a 200 and then logged with what it
-was and what was done with it:
+and every delivery is acknowledged with a 200 and then logged in the same
+`<url>: <action> (<outcome>)` shape as a processed job:
 
 ```
-Ignoring pull_request "closed" event on https://github.com/org/repo/pull/42: not an action we build on
-Ignoring pull_request "edited" event on https://github.com/org/repo/pull/42: triggered by our own update
-Ignoring issue_comment "created" event on https://github.com/org/repo/issues/7: only pull_request events are handled
-Ignoring "ping" event: only pull_request events are handled (payload keys: zen, hook, ...)
-Skipping pull_request "synchronize" event on https://github.com/org/repo/pull/42: already processing
+https://github.com/org/repo/pull/42: closed (ignored: not an action we build on)
+https://github.com/org/repo/pull/42: edited (ignored: triggered by our own update)
+https://github.com/org/repo/pull/42: synchronize (skipped: already processing)
+https://github.com/org/repo/issues/7: issue_comment created (ignored: only pull_request events are handled)
+ping event (ignored: only pull_request events are handled; payload keys: zen, hook)
 ```
+
+A queued job also logs `<url>: starting (currently running: ...)` when it
+is picked up, before its result line.
 
 Only `opened`, `edited`, `reopened` and `synchronize` pull_request events
 are queued. The bot's own body update comes back as an `edited` event and
@@ -264,14 +267,15 @@ branches on it in this path.
 **Startup queue** (`STARTUP_QUEUE`). `parseStartupQueue()` returns `null`
 and logs exactly one reason when the variable is missing, isn't JSON,
 isn't an array, is empty, or contains an item without a string `id`.
-`processStartupQueue()` logs the ids it queues on one line, notes any it
-skipped as duplicates, and awaits the drain, so the catch in `index.js`
+`processStartupQueue()` logs the URLs it queues on one line, logs any it
+skipped as duplicates as `<url>: startup-queue (skipped: already queued)`,
+and awaits the drain, so the catch in `index.js`
 covers anything unexpected during processing. Results are logged with
 `startup-queue` as the action.
 
 **The queue loop itself**. Because `handlePullRequest()` is total, the
 only thing that can throw inside `processQueue()` is the result handler.
-That is logged as `<id>: unexpected error while handling the result` and
+That is logged as `<url>: unexpected error while handling the result` and
 the loop moves on.
 
 ## Adding a case
