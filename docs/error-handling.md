@@ -137,13 +137,15 @@ dismissed or a request refused, `error` is a real failure. `LOG_LEVEL`
 (default `info`) sets the threshold, so the chatter is off unless asked
 for.
 
-By default the log is pretty-printed: each record is a timestamp, the
-level, `(pr-preview)`, then `<pr> (<action>): <message>` for a job, with
-error detail indented beneath. Fields the line already conveys aren't
-repeated under it. `LOG_FORMAT=json` writes newline-delimited JSON
-instead, one record per line with every field, for a log collector. The
-examples below are the pretty-printed form with the timestamp, level and
-name left out.
+By default the log is pretty-printed: each record is the level,
+`(pr-preview)`, then `<pr> (<action>): <message>` for a job, with error
+detail indented beneath. Fields the line already conveys aren't repeated
+under it, and there is no timestamp: the output is either watched live in
+a terminal or read through a log stream that stamps each line itself, as
+Clever Cloud's does. `LOG_FORMAT=json` writes newline-delimited JSON
+instead, one record per line with every field (`time` included), for a
+log collector. The examples below are the pretty-printed form with the
+level and name left out.
 
 ## The cases
 
