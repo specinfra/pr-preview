@@ -65,7 +65,7 @@ suite("Startup queue", function() {
             assert.deepEqual(handled, ["a/b/1", "a/b/2"]);
             assert.deepEqual(l.lines, [
                 "Queuing 3 startup jobs: https://github.com/a/b/pull/1, https://github.com/a/b/pull/2, https://github.com/a/b/pull/1",
-                "https://github.com/a/b/pull/1: startup-queue (skipped: already queued)",
+                "https://github.com/a/b/pull/1 (startup-queue): skipped (already queued)",
                 "a/b/1: startup-queue",
                 "a/b/2: startup-queue"
             ]);

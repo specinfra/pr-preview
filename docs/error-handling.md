@@ -120,8 +120,11 @@ functions:
 - `logError(err, indent)` prints `Name: message`, then `err.data` if any,
   then the stack when `DISPLAY_STACK_TRACES=yes`. Every error the app
   prints goes through it.
-- `logResult(result, action)` prints one job's outcome, in the shapes
-  shown below. Jobs are named by their GitHub URL so a line can be pasted
+- `logResult(result, action)` prints one job's outcome as
+  `<url> (<action>): <status> (<detail>)`, in the shapes shown below.
+  The status is one of `updated`, `no update`, `not a live run`,
+  `dismissed` or `failed`; the webhook and queue add `ignored`, `skipped`
+  and `starting` in the same position. Jobs are named by their GitHub URL so a line can be pasted
   straight into a browser; `queueJob()` derives it from the
   `owner/repo/number` id when the job didn't come with one.
 
@@ -130,23 +133,22 @@ functions:
 ### Success
 
 ```
-https://github.com/org/repo/pull/42: synchronize (updated)
-https://github.com/org/repo/pull/42: synchronize (updated, body edited during build)
-https://github.com/org/repo/pull/42: opened (not a live run, would have updated)
+https://github.com/org/repo/pull/42 (synchronize): updated
+https://github.com/org/repo/pull/42 (synchronize): updated (body edited during build)
+https://github.com/org/repo/pull/42 (opened): not a live run (would have updated)
 ```
 
-The parenthetical is `updated` in production, or a note that this wasn't a
-live run. If the PR body was edited while the build ran, the build keeps
+The status is `updated` in production, or `not a live run` otherwise. If the PR body was edited while the build ran, the build keeps
 the edit (only the generated part below the marker comment is replaced)
 and says so.
 
 ### Success with nothing to do
 
 ```
-https://github.com/org/repo/pull/42: edited (no update: rendered body is already up to date)
-https://github.com/org/repo/pull/42: synchronize (no update: no change to index.bs or the files it includes)
-https://github.com/org/repo/pull/42: opened (no update: PR body opts out with <!-- no preview -->)
-https://github.com/org/repo/pull/42: reopened (no update: PR is already merged)
+https://github.com/org/repo/pull/42 (edited): no update (rendered body is already up to date)
+https://github.com/org/repo/pull/42 (synchronize): no update (no change to index.bs or the files it includes)
+https://github.com/org/repo/pull/42 (opened): no update (PR body opts out with <!-- no preview -->)
+https://github.com/org/repo/pull/42 (reopened): no update (PR is already merged)
 ```
 
 `updateSkipReason()` names the condition. The first form means the build
@@ -157,10 +159,10 @@ from a startup queue entry) skips these checks.
 ### Dismissal: no usable config
 
 ```
-https://github.com/org/repo/pull/42: opened (dismissed: no .pr-preview.json, repo hasn't opted into previews)
-https://github.com/org/repo/pull/42: opened (dismissed: couldn't read .pr-preview.json from https://api.github.com/...: Bad credentials)
-https://github.com/org/repo/pull/42: opened (dismissed: .pr-preview.json is a dir, not a file)
-https://github.com/org/repo/pull/42: opened (dismissed: .pr-preview.json is invalid at /type: Data does not match any schemas from "oneOf")
+https://github.com/org/repo/pull/42 (opened): dismissed (no .pr-preview.json, repo hasn't opted into previews)
+https://github.com/org/repo/pull/42 (opened): dismissed (couldn't read .pr-preview.json from https://api.github.com/...: Bad credentials)
+https://github.com/org/repo/pull/42 (opened): dismissed (.pr-preview.json is a dir, not a file)
+https://github.com/org/repo/pull/42 (opened): dismissed (.pr-preview.json is invalid at /type: Data does not match any schemas from "oneOf")
 ```
 
 All raised by `lib/models/config.js` with the `noConfig` flag. The first is
@@ -177,7 +179,7 @@ is reported on the PR as a real error reading
 ### Dismissal: PR already merged
 
 ```
-https://github.com/org/repo/pull/42: synchronize (dismissed: PR is already merged)
+https://github.com/org/repo/pull/42 (synchronize): dismissed (PR is already merged)
 ```
 
 Raised by `PR.requestPR()` with the `prMerged` flag, as soon as the PR
@@ -187,7 +189,7 @@ caught by `updateSkipReason()` as a no-update case.)
 ### Dismissal: new commits during the build
 
 ```
-https://github.com/org/repo/pull/42: synchronize (dismissed: new commits pushed during build, requeued)
+https://github.com/org/repo/pull/42 (synchronize): dismissed (new commits pushed during build, requeued)
 ```
 
 Builds take a while. Before writing anything, `updateBody()` re-fetches
@@ -201,7 +203,7 @@ body instead (see "body edited during build" above).
 ### Real error, reported on the PR
 
 ```
-https://github.com/org/repo/pull/42: synchronize (Error: 500 Internal Server Error)
+https://github.com/org/repo/pull/42 (synchronize): failed (Error: 500 Internal Server Error)
 { request_url: 'https://www.w3.org/publications/spec-generator/?...', service: { name: 'Spec Generator', ... } }
 ```
 
@@ -212,7 +214,7 @@ failed and where to take it.
 ### Real error, kept off the PR
 
 ```
-https://github.com/org/repo/pull/42: synchronize (TypeError: Cannot read properties of undefined (reading 'sha'))
+https://github.com/org/repo/pull/42 (synchronize): failed (TypeError: Cannot read properties of undefined (reading 'sha'))
     Not reported on the PR: not a live run.
 ```
 
@@ -223,7 +225,7 @@ detail lines that follow are the same as for a reported error.
 ### Real error whose report could not be posted
 
 ```
-https://github.com/org/repo/pull/42: synchronize (Error: 502 Bad Gateway)
+https://github.com/org/repo/pull/42 (synchronize): failed (Error: 502 Bad Gateway)
     Additionally, reporting it on the PR failed:
         Error: Bad credentials
 { request_url: 'https://services.w3.org/htmldiff?...', service: { name: 'HTML Diff Service', ... } }
@@ -237,14 +239,14 @@ stack too.
 
 **Webhook handler** (`POST /github-hook`). Nothing here throws by design,
 and every delivery is acknowledged with a 200 and then logged in the same
-`<url>: <action> (<outcome>)` shape as a processed job:
+`<url> (<action>): <status> (<detail>)` shape as a processed job:
 
 ```
-https://github.com/org/repo/pull/42: closed (ignored: not an action we build on)
-https://github.com/org/repo/pull/42: edited (ignored: triggered by our own update)
-https://github.com/org/repo/pull/42: synchronize (skipped: already processing)
-https://github.com/org/repo/issues/7: issue_comment created (ignored: only pull_request events are handled)
-ping event (ignored: only pull_request events are handled; payload keys: zen, hook)
+https://github.com/org/repo/pull/42 (closed): ignored (not an action we build on)
+https://github.com/org/repo/pull/42 (edited): ignored (triggered by our own update)
+https://github.com/org/repo/pull/42 (synchronize): skipped (already processing)
+https://github.com/org/repo/issues/7 (issue_comment created): ignored (only pull_request events are handled)
+ping event: ignored (only pull_request events are handled; payload keys: zen, hook)
 ```
 
 A queued job also logs `<url>: starting (currently running: ...)` when it
@@ -268,14 +270,14 @@ branches on it in this path.
 and logs exactly one reason when the variable is missing, isn't JSON,
 isn't an array, is empty, or contains an item without a string `id`.
 `processStartupQueue()` logs the URLs it queues on one line, logs any it
-skipped as duplicates as `<url>: startup-queue (skipped: already queued)`,
+skipped as duplicates as `<url> (startup-queue): skipped (already queued)`,
 and awaits the drain, so the catch in `index.js`
 covers anything unexpected during processing. Results are logged with
 `startup-queue` as the action.
 
 **The queue loop itself**. Because `handlePullRequest()` is total, the
 only thing that can throw inside `processQueue()` is the result handler.
-That is logged as `<url>: unexpected error while handling the result` and
+That is logged as `<url>: failed (unexpected error while handling the result)` and
 the loop moves on.
 
 ## Adding a case
