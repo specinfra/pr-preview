@@ -61,3 +61,49 @@ suite('WattsiClient.findFilesOnlyIn', function() {
         assert.deepEqual(w.findFilesOnlyIn("./foo/bar/baz", lines), ["bar.html"]);
     });
 });
+
+suite('WattsiClient.cleanup', function() {
+    var childProcess = require('child_process'),
+        originalExec = childProcess.exec,
+        modulePath = require.resolve('../lib/wattsi-client'),
+        commands;
+
+    // wattsi-client binds child_process.exec at require time, so stub first and
+    // then load a fresh copy of the module that picks up the stub.
+    setup(function() {
+        commands = [];
+        childProcess.exec = function(cmd, callback) {
+            commands.push(cmd);
+            process.nextTick(function() { callback(null, "", ""); });
+        };
+        delete require.cache[modulePath];
+    });
+
+    teardown(function() {
+        childProcess.exec = originalExec;
+        delete require.cache[modulePath];
+    });
+
+    test('removes the per-PR directory (dirPath), not an undefined property', function() {
+        var StubbedWattsi = require('../lib/wattsi-client');
+        var w = new StubbedWattsi({ number: 1234 });
+        return w.cleanup().then(function() {
+            assert.deepEqual(commands, ["rm -rf " + w.dirPath]);
+            assert.ok(/\/pr-preview\/whatwg\/html\/1234$/.test(w.dirPath));
+            assert.ok(!/undefined/.test(commands[0]));
+        });
+    });
+
+    test('rejects when the command fails', function() {
+        childProcess.exec = function(cmd, callback) {
+            process.nextTick(function() { callback(new Error("rm failed")); });
+        };
+        var StubbedWattsi = require('../lib/wattsi-client');
+        var w = new StubbedWattsi({ number: 1234 });
+        return w.cleanup().then(function() {
+            assert.fail("expected cleanup to reject");
+        }, function(err) {
+            assert.equal(err.message, "rm failed");
+        });
+    });
+});
