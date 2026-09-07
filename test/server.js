@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const request = require('supertest');
 const createApp = require('../lib/app');
 const Controller = require('../lib/controller');
+const memoryLogger = require('./support/memory-logger');
 
 suite('Server', () => {
     test('should respond to github-hook endpoint', (done) => {
@@ -172,11 +173,12 @@ suite('Server signature verification', () => {
 });
 
 suite('Server webhook logging', () => {
+    // What each record says: [pr or event, action, status, reason, msg].
     const appWithLog = () => {
-        const lines = [];
-        const logger = { log: (...args) => lines.push(args.join(" ")), logError() {}, logResult() {} };
-        const controller = new Controller({ logger });
-        const app = createApp(controller, { githubSecret: 'x', nodeEnv: 'development' }, logger);
+        const log = memoryLogger();
+        const controller = new Controller({ logger: log });
+        const app = createApp(controller, { githubSecret: 'x', nodeEnv: 'development' }, log);
+        const lines = () => log.records().map(r => [r.pr || r.event, r.action, r.status, r.reason, r.msg]);
         return { app, lines, controller };
     };
     const prPayload = (action, sender) => ({
@@ -190,7 +192,7 @@ suite('Server webhook logging', () => {
     test('names an ignored pull_request action', (done) => {
         const { app, lines } = appWithLog();
         request(app).post('/github-hook').send(prPayload('closed')).expect(200).end(err => {
-            assert.deepEqual(lines, ['https://github.com/test/repo/pull/123 (closed): ignored (not an action we build on)']);
+            assert.deepEqual(lines(), [['https://github.com/test/repo/pull/123', 'closed', 'ignored', 'not an action we build on', 'ignored (not an action we build on)']]);
             done(err);
         });
     });
@@ -198,7 +200,7 @@ suite('Server webhook logging', () => {
     test('names an event triggered by its own update', (done) => {
         const { app, lines } = appWithLog();
         request(app).post('/github-hook').send(prPayload('edited', 'pr-preview[bot]')).expect(200).end(err => {
-            assert.deepEqual(lines, ['https://github.com/test/repo/pull/123 (edited): ignored (triggered by our own update)']);
+            assert.deepEqual(lines(), [['https://github.com/test/repo/pull/123', 'edited', 'ignored', 'triggered by our own update', 'ignored (triggered by our own update)']]);
             done(err);
         });
     });
@@ -212,7 +214,8 @@ suite('Server webhook logging', () => {
             repository: { full_name: 'test/repo' }
         };
         request(app).post('/github-hook').send(payload).expect(200).end(err => {
-            assert.deepEqual(lines, ['https://github.com/test/repo/issues/7 (issue_comment created): ignored (only pull_request events are handled)']);
+            assert.deepEqual(lines(), [['issue_comment', 'created', 'ignored', 'only pull_request events are handled',
+                'https://github.com/test/repo/issues/7 (issue_comment created): ignored (only pull_request events are handled)']]);
             done(err);
         });
     });
@@ -223,7 +226,8 @@ suite('Server webhook logging', () => {
             .set('X-GitHub-Event', 'ping')
             .send({ zen: 'Keep it logically awesome.', hook: {} })
             .expect(200).end(err => {
-                assert.deepEqual(lines, ['ping event: ignored (only pull_request events are handled; payload keys: zen, hook)']);
+                assert.deepEqual(lines(), [['ping', undefined, 'ignored', 'only pull_request events are handled',
+                    'ping event: ignored (only pull_request events are handled; payload keys: zen, hook)']]);
                 done(err);
             });
     });
@@ -232,7 +236,7 @@ suite('Server webhook logging', () => {
         const { app, lines, controller } = appWithLog();
         controller.currently_running.add('test/repo/123');
         request(app).post('/github-hook').send(prPayload('synchronize')).expect(200).end(err => {
-            assert.deepEqual(lines, ['https://github.com/test/repo/pull/123 (synchronize): skipped (already processing)']);
+            assert.deepEqual(lines(), [['https://github.com/test/repo/pull/123', 'synchronize', 'skipped', 'already processing', 'skipped (already processing)']]);
             done(err);
         });
     });

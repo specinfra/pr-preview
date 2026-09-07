@@ -205,6 +205,8 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 - `PORT` — must be `8080` on Clever Cloud (the code defaults to `5000`)
 - `ALLOW_MULTIPLE_AWS_BUCKETS` — set to `no` to force use of the default bucket only and ignore `WHATWG_*` credentials
 - `STARTUP_QUEUE` — JSON array of PRs to process on startup
+- `LOG_FORMAT` — `pretty` (the default) for readable output, one line per event with error detail indented beneath it; `json` for newline-delimited JSON, one record per line, when a log collector is reading the output
+- `LOG_LEVEL` — the least severe [pino level](https://getpino.io/#/docs/api?id=level-string) to log; defaults to `info`. `debug` adds the build's chatter: fetches, cache hits, file reads, the config as read, and the Wattsi client's directory listings
 
 ### Clever Cloud platform variables
 
@@ -214,9 +216,8 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 
 ### Debugging
 
-- `DISPLAY_STACK_TRACES` — set to `yes` to include stack traces in logs
+- `DISPLAY_STACK_TRACES` — set to `yes` to include stack traces in logged errors
 - `DEBUG_SIMPLE_GITHUB` — set to `yes` to enable GitHub API debugging
-- `DEBUG_WATTSI` — set to `yes` to log Wattsi client output
 
 ## Local development
 
