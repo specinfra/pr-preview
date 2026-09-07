@@ -112,35 +112,38 @@ controller copies into `error.data.errors` so it shows up too.
 
 ### What the log sees
 
-The logger lives in `lib/logger.js` and is [pino](https://getpino.io)
-underneath. `index.js` uses the shared instance and hands it to both the
-controller and the Express app; modules that aren't handed one (the cache,
-the fetch mixins, the Wattsi client) log through the same shared instance.
-It has three functions:
+The logger lives in `lib/logger.js` and is [pino](https://getpino.io).
+Every record is named `pr-preview` and says what it is about in fields;
+the message is the readable sentence. `index.js` hands the logger to the
+controller and the Express app; modules that log on their own (the S3
+cache, the fetch and file mixins, the spec-diff model, the include
+scanner, the config model, the Wattsi client) use it directly, bound to a
+`module`.
 
-- `log(...args)` writes one `info` line, its arguments formatted the way
-  `console.log` formats them.
-- `logError(err, message)` writes one `error` record headed
-  `<message> (<Name>: <message>)`, carrying the error's `data` and, when
-  `DISPLAY_STACK_TRACES=yes`, its stack. Every error the app logs goes
-  through it.
-- `logResult(result, action)` writes one job's outcome as
-  `<url> (<action>): <status> (<detail>)`, in the shapes shown below.
-  The status is one of `updated`, `no update`, `not a live run`,
-  `dismissed` or `failed`; the webhook and queue add `ignored`, `skipped`
-  and `starting` in the same position. Jobs are named by their GitHub URL so a line can be pasted
-  straight into a browser; `queueJob()` derives it from the
-  `owner/repo/number` id when the job didn't come with one. A real error
-  is an `error` record carrying `err`, plus `notReportedReason` or
-  `reportingError` when they apply; everything else is `info`.
+Job records come from a child logger (`jobLogger()`) bound to the job's
+`pr` URL and `action`, so a line can be pasted straight into a browser;
+`queueJob()` derives the URL from the `owner/repo/number` id when the job
+didn't come with one. Each carries a `status` and, when there is one, a
+`reason`. The status of a processed job (`logResult()`) is `updated`,
+`no update`, `not a live run`, `dismissed` or `failed`; the queue and the
+webhook add `starting`, `ignored` and `skipped` (`logStatus()`). A real
+error is an `error` record carrying `err` (`type`, `message`, the
+thrower's `data`, and the stack when `DISPLAY_STACK_TRACES=yes`), plus
+`notReported` or `reportingError` when they apply.
+
+Levels: `debug` is the build's chatter (fetches, cache hits, file reads,
+the config as read), `info` is what happened to a job, `warn` is a job
+dismissed or a request refused, `error` is a real failure. `LOG_LEVEL`
+(default `info`) sets the threshold, so the chatter is off unless asked
+for.
 
 By default the log is pretty-printed: each record is a timestamp, the
-level and the line, with any error detail indented beneath it. Set
-`LOG_FORMAT=json` to write newline-delimited JSON instead, one record per
-line with the same fields (`msg`, `err`, `notReportedReason`,
-`reportingError`), for a log collector. `LOG_LEVEL` (default `info`) sets
-the pino level. The examples below are the pretty-printed form with the
-timestamp and level left out.
+level, `(pr-preview)`, then `<pr> (<action>): <message>` for a job, with
+error detail indented beneath. Fields the line already conveys aren't
+repeated under it. `LOG_FORMAT=json` writes newline-delimited JSON
+instead, one record per line with every field, for a log collector. The
+examples below are the pretty-printed form with the timestamp, level and
+name left out.
 
 ## The cases
 
@@ -179,7 +182,8 @@ https://github.com/org/repo/pull/42 (opened): dismissed (.pr-preview.json is a d
 https://github.com/org/repo/pull/42 (opened): dismissed (.pr-preview.json is invalid at /type: Data does not match any schemas from "oneOf")
 ```
 
-All raised by `lib/models/config.js` with the `noConfig` flag. The first is
+All raised by `lib/models/config.js` with the `noConfig` flag, and logged
+at `warn` with the reason as the `reason` field. The first is
 the routine case with an org-wide install and reads as such. GitHub
 answers 404 both for a missing file and for one the installation can't
 see, and the HTTP client discards the status code, so those two are
@@ -217,7 +221,7 @@ body instead (see "body edited during build" above).
 ### Real error, reported on the PR
 
 ```
-https://github.com/org/repo/pull/42 (synchronize): failed (Error: 500 Internal Server Error)
+https://github.com/org/repo/pull/42 (synchronize): failed
     err: Error: 500 Internal Server Error
         data: {
           "request_url": "https://www.w3.org/publications/spec-generator/?...",
@@ -226,26 +230,24 @@ https://github.com/org/repo/pull/42 (synchronize): failed (Error: 500 Internal S
 ```
 
 When `DISPLAY_STACK_TRACES=yes`, the stack takes the place of the first
-`err` line. An error with neither data nor stack to show has no `err`
-block at all: the headline already says everything. The PR body is
-replaced with the error report described above, so the author sees what
-failed and where to take it.
+`err` line. The PR body is replaced with the error report described
+above, so the author sees what failed and where to take it.
 
 ### Real error, kept off the PR
 
 ```
-https://github.com/org/repo/pull/42 (synchronize): failed (TypeError: Cannot read properties of undefined (reading 'sha'))
-    notReportedReason: "not a live run"
+https://github.com/org/repo/pull/42 (synchronize): failed
+    err: TypeError: Cannot read properties of undefined (reading 'sha')
+    notReported: "not a live run"
 ```
 
-`notReportedReason` is `reportSkipReason()`'s answer: not in production, PR
-never loaded, or the PR didn't warrant an update in the first place. Any
-`err` block comes first, as for a reported error.
+`notReported` is `reportSkipReason()`'s answer: not in production, PR
+never loaded, or the PR didn't warrant an update in the first place.
 
 ### Real error whose report could not be posted
 
 ```
-https://github.com/org/repo/pull/42 (synchronize): failed (Error: 502 Bad Gateway)
+https://github.com/org/repo/pull/42 (synchronize): failed
     err: Error: 502 Bad Gateway
         data: {
           "request_url": "https://services.w3.org/htmldiff?...",
@@ -261,8 +263,8 @@ stack too.
 ## Errors outside the job path
 
 **Webhook handler** (`POST /github-hook`). Nothing here throws by design,
-and every delivery is acknowledged with a 200 and then logged in the same
-`<url> (<action>): <status> (<detail>)` shape as a processed job:
+and every delivery is acknowledged with a 200 and then logged with the
+same `status` and `reason` fields as a processed job:
 
 ```
 https://github.com/org/repo/pull/42 (closed): ignored (not an action we build on)
@@ -272,25 +274,26 @@ https://github.com/org/repo/issues/7 (issue_comment created): ignored (only pull
 ping event: ignored (only pull_request events are handled; payload keys: zen, hook)
 ```
 
-A queued job also logs `<url>: starting (currently running: ...)` when it
-is picked up, before its result line.
+A queued job also logs `<url> (<action>): starting (currently running:
+...)` when it is picked up, before its result line.
 
 Only `opened`, `edited`, `reopened` and `synchronize` pull_request events
 are queued. The bot's own body update comes back as an `edited` event and
 is recognised by its sender. A PR already queued or running is not queued
-twice. Unverified requests in production are logged as `Unverified
-request` with the reported client address and fall through to Express's
-404.
+twice. Unverified requests in production are logged at `warn` as
+`Unverified request: <method> <url> from <address>` and fall through to
+Express's 404.
 
 **Config tester** (`POST /config`). Validation errors (bad repo name,
 invalid JSON, schema violations, a repo with no PRs) are answered with a
-400 and the error message, and logged through `logError()` as
-`/config: request failed (<Name>: <message>)`. Schema violations here carry the `noConfig`
+400 and the error message, and logged as an `error` record reading
+`/config: request failed` with the error as `err`. Schema violations here carry the `noConfig`
 flag because they come from the same `Config.validate()`, but nothing
 branches on it in this path.
 
 **Startup queue** (`STARTUP_QUEUE`). `parseStartupQueue()` returns `null`
-and logs exactly one reason when the variable is missing, isn't JSON,
+and logs exactly one reason (at `warn`, except for the routine absence of
+the variable) when the variable is missing, isn't JSON,
 isn't an array, is empty, or contains an item without a string `id`.
 `processStartupQueue()` logs the URLs it queues on one line, logs any it
 skipped as duplicates as `<url> (startup-queue): skipped (already queued)`,
@@ -300,8 +303,8 @@ covers anything unexpected during processing. Results are logged with
 
 **The queue loop itself**. Because `handlePullRequest()` is total, the
 only thing that can throw inside `processQueue()` is the result handler.
-That is logged through `logError()` as `<url>: result handler failed
-(<Name>: <message>)` and the loop moves on.
+That is logged against the job as `result handler failed`, with the
+error, and the loop moves on.
 
 ## Adding a case
 

@@ -1,23 +1,14 @@
 "use strict";
 const assert = require("assert"),
-    { parseStartupQueue, processStartupQueue } = require("../lib/startup-queue");
-
-function logger() {
-    const lines = [];
-    return {
-        lines,
-        log: (...args) => lines.push(args.join(" ")),
-        logError: err => lines.push(err.message),
-        logResult: (r, action) => lines.push(`${r.job.id}: ${action}`)
-    };
-}
+    { parseStartupQueue, processStartupQueue } = require("../lib/startup-queue"),
+    logger = require("./support/memory-logger");
 
 suite("Startup queue", function() {
 
     test("parses a valid queue", function() {
         const l = logger();
         assert.deepEqual(parseStartupQueue('[{"id":"a/b/1"}]', l), [{ id: "a/b/1" }]);
-        assert.deepEqual(l.lines, []);
+        assert.deepEqual(l.messages(), []);
     });
 
     test("rejects anything unusable with one logged reason", function() {
@@ -31,11 +22,12 @@ suite("Startup queue", function() {
         cases.forEach(([env, expected]) => {
             const l = logger();
             assert.equal(parseStartupQueue(env, l), null);
-            assert.equal(l.lines.length, 1, `${env}: expected exactly one line`);
+            const lines = l.messages();
+            assert.equal(lines.length, 1, `${env}: expected exactly one line`);
             if (expected instanceof RegExp) {
-                assert(expected.test(l.lines[0]), l.lines[0]);
+                assert(expected.test(lines[0]), lines[0]);
             } else {
-                assert.equal(l.lines[0], expected);
+                assert.equal(lines[0], expected);
             }
         });
     });
@@ -51,23 +43,20 @@ suite("Startup queue", function() {
                 this.queue.push(job);
                 return { job, queued: true, skipReason: null };
             },
-            async processQueue(onResult) {
+            async processQueue() {
                 while (this.queue.length) {
                     const job = this.queue.shift();
-                    handled.push(job.id);
-                    onResult({ job });
+                    handled.push(`${job.id} (${job.action})`);
                 }
             }
         };
 
         const queue = [{ id: "a/b/1" }, { id: "a/b/2" }, { id: "a/b/1" }];
         return processStartupQueue(queue, controller, l).then(() => {
-            assert.deepEqual(handled, ["a/b/1", "a/b/2"]);
-            assert.deepEqual(l.lines, [
-                "Queuing 3 startup jobs: https://github.com/a/b/pull/1, https://github.com/a/b/pull/2, https://github.com/a/b/pull/1",
-                "https://github.com/a/b/pull/1 (startup-queue): skipped (already queued)",
-                "a/b/1: startup-queue",
-                "a/b/2: startup-queue"
+            assert.deepEqual(handled, ["a/b/1 (startup-queue)", "a/b/2 (startup-queue)"]);
+            assert.deepEqual(l.records().map(r => [r.pr, r.action, r.msg]), [
+                [undefined, undefined, "Queuing 3 startup jobs: https://github.com/a/b/pull/1, https://github.com/a/b/pull/2, https://github.com/a/b/pull/1"],
+                ["https://github.com/a/b/pull/1", "startup-queue", "skipped (already queued)"]
             ]);
         });
     });

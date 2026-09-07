@@ -7,14 +7,13 @@ if (process.env.NODE_ENV === "dev") {
 
 const createApp = require("./lib/app"),
     Controller = require("./lib/controller"),
-    { shared: logger } = require("./lib/logger"),
+    { logger } = require("./lib/logger"),
     { parseStartupQueue, processStartupQueue } = require("./lib/startup-queue");
 
 var config = {
     githubSecret: process.env.GITHUB_SECRET,
     port: process.env.PORT || 5000,
-    nodeEnv: process.env.NODE_ENV,
-    displayStackTraces: process.env.DISPLAY_STACK_TRACES === "yes"
+    nodeEnv: process.env.NODE_ENV
 };
 
 const controller = new Controller({ logger });
@@ -22,13 +21,13 @@ const controller = new Controller({ logger });
 const queue = parseStartupQueue(process.env.STARTUP_QUEUE, logger);
 if (queue) {
     processStartupQueue(queue, controller, logger).catch(error => {
-        logger.logError(error, "Unexpected error during startup queue processing");
+        logger.error({ err: error }, "Unexpected error during startup queue processing");
     });
 }
 
 var app = createApp(controller, config, logger);
 var port = config.port;
 app.listen(port, function() {
-    logger.log("Express server listening on port %d in %s mode", port, app.settings.env);
-    logger.log("App started in", (Date.now() - t0) + "ms.");
+    logger.info("Express server listening on port %d in %s mode", port, app.settings.env);
+    logger.info("App started in %dms.", Date.now() - t0);
 });

@@ -1,11 +1,13 @@
 "use strict";
 const assert = require("assert"),
     Controller = require("../lib/controller"),
-    PR = require("../lib/models/pr");
+    PR = require("../lib/models/pr"),
+    { createLogger } = require("../lib/logger"),
+    memoryLogger = require("./support/memory-logger");
 
 const JOB = { id: "acme/spec/7", installation_id: 1, forcedUpdate: false };
 
-const silentLogger = { log() {}, logError() {}, logResult() {} };
+const silentLogger = createLogger({ logLevel: "silent" });
 
 function withEnv(env, fn) {
     const original = process.env.NODE_ENV;
@@ -128,10 +130,8 @@ suite("Controller.processQueue", function() {
     });
 
     test("keeps draining the queue when a result handler throws", function() {
-        const logged = [];
-        const controller = new Controller({
-            logger: { log: (...args) => logged.push(args.join(" ")), logError: err => logged.push(err.message) }
-        });
+        const log = memoryLogger();
+        const controller = new Controller({ logger: log });
         controller.handlePullRequest = job => Promise.resolve({ job, requeue: false });
         controller.queueJob({ id: "a/b/1" });
         controller.queueJob({ id: "a/b/2" });
@@ -142,8 +142,28 @@ suite("Controller.processQueue", function() {
             if (r.job.id == "a/b/1") throw new Error("handler broke");
         }).then(() => {
             assert.deepEqual(seen, ["a/b/1", "a/b/2"]);
-            assert(logged.includes("handler broke"));
+            const failure = log.records().find(r => r.msg == "result handler failed");
+            assert(failure, log.text());
+            assert.equal(failure.pr, "https://github.com/a/b/pull/1");
+            assert.equal(failure.err.message, "handler broke");
             assert.equal(controller.currently_running.size, 0);
+        });
+    });
+
+    test("logs each job's start and outcome against its PR and action", function() {
+        const log = memoryLogger();
+        const controller = new Controller({ logger: log });
+        controller.handlePullRequest = job => Promise.resolve({ job, updated: true });
+        controller.queueJob({ id: "a/b/1", action: "synchronize" });
+        controller.queueJob({ id: "a/b/2", action: "startup-queue" });
+
+        return controller.processQueue().then(() => {
+            assert.deepEqual(log.records().map(r => [r.pr, r.action, r.status, r.msg]), [
+                ["https://github.com/a/b/pull/1", "synchronize", "starting", "starting (currently running: https://github.com/a/b/pull/1)"],
+                ["https://github.com/a/b/pull/1", "synchronize", "updated", "updated"],
+                ["https://github.com/a/b/pull/2", "startup-queue", "starting", "starting (currently running: https://github.com/a/b/pull/2)"],
+                ["https://github.com/a/b/pull/2", "startup-queue", "updated", "updated"]
+            ]);
         });
     });
 });
