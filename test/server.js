@@ -170,3 +170,70 @@ suite('Server signature verification', () => {
             .end(done);
     });
 });
+
+suite('Server webhook logging', () => {
+    const appWithLog = () => {
+        const lines = [];
+        const logger = { log: (...args) => lines.push(args.join(" ")), logError() {}, logResult() {} };
+        const controller = new Controller({ logger });
+        const app = createApp(controller, { githubSecret: 'x', nodeEnv: 'development' }, logger);
+        return { app, lines, controller };
+    };
+    const prPayload = (action, sender) => ({
+        action,
+        number: 123,
+        installation: { id: 1 },
+        pull_request: { base: { repo: { full_name: 'test/repo' } } },
+        sender: { login: sender || 'testuser' }
+    });
+
+    test('names an ignored pull_request action', (done) => {
+        const { app, lines } = appWithLog();
+        request(app).post('/github-hook').send(prPayload('closed')).expect(200).end(err => {
+            assert.deepEqual(lines, ['Ignoring pull_request "closed" event on test/repo/123: not an action we build on']);
+            done(err);
+        });
+    });
+
+    test('names an event triggered by its own update', (done) => {
+        const { app, lines } = appWithLog();
+        request(app).post('/github-hook').send(prPayload('edited', 'pr-preview[bot]')).expect(200).end(err => {
+            assert.deepEqual(lines, ['Ignoring pull_request "edited" event on test/repo/123: triggered by our own update']);
+            done(err);
+        });
+    });
+
+    test('names an issue_comment event and the issue it concerned', (done) => {
+        const { app, lines } = appWithLog();
+        const payload = {
+            action: 'created',
+            issue: { number: 7 },
+            issue_comment: { body: 'hi' },
+            repository: { full_name: 'test/repo' }
+        };
+        request(app).post('/github-hook').send(payload).expect(200).end(err => {
+            assert.deepEqual(lines, ['Ignoring issue_comment "created" event on test/repo#7: only pull_request events are handled']);
+            done(err);
+        });
+    });
+
+    test('names an unrecognized event by its header and payload keys', (done) => {
+        const { app, lines } = appWithLog();
+        request(app).post('/github-hook')
+            .set('X-GitHub-Event', 'ping')
+            .send({ zen: 'Keep it logically awesome.', hook: {} })
+            .expect(200).end(err => {
+                assert.deepEqual(lines, ['Ignoring "ping" event: only pull_request events are handled (payload keys: zen, hook)']);
+                done(err);
+            });
+    });
+
+    test('says why a duplicate pull_request event was skipped', (done) => {
+        const { app, lines, controller } = appWithLog();
+        controller.currently_running.add('test/repo/123');
+        request(app).post('/github-hook').send(prPayload('synchronize')).expect(200).end(err => {
+            assert.deepEqual(lines, ['Skipping pull_request "synchronize" event on test/repo/123: already processing']);
+            done(err);
+        });
+    });
+});

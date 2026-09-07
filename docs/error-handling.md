@@ -233,12 +233,24 @@ stack too.
 
 ## Errors outside the job path
 
-**Webhook handler** (`POST /github-hook`). Nothing here throws by design.
-Unverified requests in production are logged as `Unverified request` with
-the reported client address and fall through to Express's 404. A PR event
-that is already queued or running is logged as `Skipping PR <id>: already
-queued` (or `already processing`) and not queued twice. Payloads that
-aren't PR events are logged and ignored.
+**Webhook handler** (`POST /github-hook`). Nothing here throws by design,
+and every delivery is acknowledged with a 200 and then logged with what it
+was and what was done with it:
+
+```
+Ignoring pull_request "closed" event on w3c/wcag/5331: not an action we build on
+Ignoring pull_request "edited" event on w3c/wcag/5331: triggered by our own update
+Ignoring issue_comment "created" event on w3c/wcag#5331: only pull_request events are handled
+Ignoring "ping" event: only pull_request events are handled (payload keys: zen, hook, ...)
+Skipping pull_request "synchronize" event on w3c/wcag/5331: already processing
+```
+
+Only `opened`, `edited`, `reopened` and `synchronize` pull_request events
+are queued. The bot's own body update comes back as an `edited` event and
+is recognised by its sender. A PR already queued or running is not queued
+twice. Unverified requests in production are logged as `Unverified
+request` with the reported client address and fall through to Express's
+404.
 
 **Config tester** (`POST /config`). Validation errors (bad repo name,
 invalid JSON, schema violations, a repo with no PRs) are answered with a
