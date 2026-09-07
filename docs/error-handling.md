@@ -112,21 +112,35 @@ controller copies into `error.data.errors` so it shows up too.
 
 ### What the log sees
 
-The logger lives in `lib/logger.js` and is created once, in `index.js`,
-then handed to both the controller and the Express app. It has three
-functions:
+The logger lives in `lib/logger.js` and is [pino](https://getpino.io)
+underneath. `index.js` uses the shared instance and hands it to both the
+controller and the Express app; modules that aren't handed one (the cache,
+the fetch mixins, the Wattsi client) log through the same shared instance.
+It has three functions:
 
-- `log(...args)` is `console.log`.
-- `logError(err, indent)` prints `Name: message`, then `err.data` if any,
-  then the stack when `DISPLAY_STACK_TRACES=yes`. Every error the app
-  prints goes through it.
-- `logResult(result, action)` prints one job's outcome as
+- `log(...args)` writes one `info` line, its arguments formatted the way
+  `console.log` formats them.
+- `logError(err, message)` writes one `error` record headed
+  `<message> (<Name>: <message>)`, carrying the error's `data` and, when
+  `DISPLAY_STACK_TRACES=yes`, its stack. Every error the app logs goes
+  through it.
+- `logResult(result, action)` writes one job's outcome as
   `<url> (<action>): <status> (<detail>)`, in the shapes shown below.
   The status is one of `updated`, `no update`, `not a live run`,
   `dismissed` or `failed`; the webhook and queue add `ignored`, `skipped`
   and `starting` in the same position. Jobs are named by their GitHub URL so a line can be pasted
   straight into a browser; `queueJob()` derives it from the
-  `owner/repo/number` id when the job didn't come with one.
+  `owner/repo/number` id when the job didn't come with one. A real error
+  is an `error` record carrying `err`, plus `notReportedReason` or
+  `reportingError` when they apply; everything else is `info`.
+
+By default the log is pretty-printed: each record is a timestamp, the
+level and the line, with any error detail indented beneath it. Set
+`LOG_FORMAT=json` to write newline-delimited JSON instead, one record per
+line with the same fields (`msg`, `err`, `notReportedReason`,
+`reportingError`), for a log collector. `LOG_LEVEL` (default `info`) sets
+the pino level. The examples below are the pretty-printed form with the
+timestamp and level left out.
 
 ## The cases
 
@@ -204,10 +218,16 @@ body instead (see "body edited during build" above).
 
 ```
 https://github.com/org/repo/pull/42 (synchronize): failed (Error: 500 Internal Server Error)
-{ request_url: 'https://www.w3.org/publications/spec-generator/?...', service: { name: 'Spec Generator', ... } }
+    err: Error: 500 Internal Server Error
+        data: {
+          "request_url": "https://www.w3.org/publications/spec-generator/?...",
+          "service": { "name": "Spec Generator", ... }
+        }
 ```
 
-Followed by the stack when `DISPLAY_STACK_TRACES=yes`. The PR body is
+When `DISPLAY_STACK_TRACES=yes`, the stack takes the place of the first
+`err` line. An error with neither data nor stack to show has no `err`
+block at all: the headline already says everything. The PR body is
 replaced with the error report described above, so the author sees what
 failed and where to take it.
 
@@ -215,24 +235,27 @@ failed and where to take it.
 
 ```
 https://github.com/org/repo/pull/42 (synchronize): failed (TypeError: Cannot read properties of undefined (reading 'sha'))
-    Not reported on the PR: not a live run.
+    notReportedReason: "not a live run"
 ```
 
-The second line is `reportSkipReason()`'s answer: not in production, PR
-never loaded, or the PR didn't warrant an update in the first place. The
-detail lines that follow are the same as for a reported error.
+`notReportedReason` is `reportSkipReason()`'s answer: not in production, PR
+never loaded, or the PR didn't warrant an update in the first place. Any
+`err` block comes first, as for a reported error.
 
 ### Real error whose report could not be posted
 
 ```
 https://github.com/org/repo/pull/42 (synchronize): failed (Error: 502 Bad Gateway)
-    Additionally, reporting it on the PR failed:
-        Error: Bad credentials
-{ request_url: 'https://services.w3.org/htmldiff?...', service: { name: 'HTML Diff Service', ... } }
+    err: Error: 502 Bad Gateway
+        data: {
+          "request_url": "https://services.w3.org/htmldiff?...",
+          "service": { "name": "HTML Diff Service", ... }
+        }
+    reportingError: Error: Bad credentials
 ```
 
-The original error is the headline; the failure to post it is indented
-under it and printed through `logError()`, so it gets its own data and
+The original error is the headline; the failure to post it is the
+`reportingError`, serialized the same way, so it gets its own data and
 stack too.
 
 ## Errors outside the job path
@@ -261,8 +284,8 @@ request` with the reported client address and fall through to Express's
 
 **Config tester** (`POST /config`). Validation errors (bad repo name,
 invalid JSON, schema violations, a repo with no PRs) are answered with a
-400 and the error message, and logged as `/config: request failed`
-followed by `logError()`. Schema violations here carry the `noConfig`
+400 and the error message, and logged through `logError()` as
+`/config: request failed (<Name>: <message>)`. Schema violations here carry the `noConfig`
 flag because they come from the same `Config.validate()`, but nothing
 branches on it in this path.
 
@@ -277,8 +300,8 @@ covers anything unexpected during processing. Results are logged with
 
 **The queue loop itself**. Because `handlePullRequest()` is total, the
 only thing that can throw inside `processQueue()` is the result handler.
-That is logged as `<url>: failed (unexpected error while handling the result)` and
-the loop moves on.
+That is logged through `logError()` as `<url>: result handler failed
+(<Name>: <message>)` and the loop moves on.
 
 ## Adding a case
 

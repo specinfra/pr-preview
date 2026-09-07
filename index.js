@@ -7,7 +7,7 @@ if (process.env.NODE_ENV === "dev") {
 
 const createApp = require("./lib/app"),
     Controller = require("./lib/controller"),
-    createLogger = require("./lib/logger"),
+    { shared: logger } = require("./lib/logger"),
     { parseStartupQueue, processStartupQueue } = require("./lib/startup-queue");
 
 var config = {
@@ -17,14 +17,12 @@ var config = {
     displayStackTraces: process.env.DISPLAY_STACK_TRACES === "yes"
 };
 
-const logger = createLogger(config);
 const controller = new Controller({ logger });
 
 const queue = parseStartupQueue(process.env.STARTUP_QUEUE, logger);
 if (queue) {
     processStartupQueue(queue, controller, logger).catch(error => {
-        logger.log("Unexpected error during startup queue processing");
-        logger.logError(error, "    ");
+        logger.logError(error, "Unexpected error during startup queue processing");
     });
 }
 
