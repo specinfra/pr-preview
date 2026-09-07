@@ -204,6 +204,7 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 - `NODE_ENV` — set to `production` for live operation (gates webhook signature verification and PR comment writes)
 - `PORT` — must be `8080` on Clever Cloud (the code defaults to `5000`)
 - `ALLOW_MULTIPLE_AWS_BUCKETS` — set to `no` to force use of the default bucket only and ignore `WHATWG_*` credentials
+- `ALLOWED_ORGS` — comma or whitespace separated list of GitHub logins the app runs for (e.g. `specinfra,whatwg`); PRs and config requests for repositories owned by anybody else are ignored. Unset means no restriction. Matched case-insensitively, and enforced by the app, not by GitHub — see the README
 - `STARTUP_QUEUE` — JSON array of PRs to process on startup
 - `LOG_FORMAT` — `pretty` (the default) for readable output, one line per event with error detail indented beneath it and no timestamp of its own, since the Clever Cloud log stream already stamps every line; `json` for newline-delimited JSON, one record per line with its own `time`, when a log collector is reading the output
 - `LOG_LEVEL` — the least severe [pino level](https://getpino.io/#/docs/api?id=level-string) to log; defaults to `info`. `debug` adds the build's chatter: fetches, cache hits, file reads, the config as read, and the Wattsi client's directory listings
