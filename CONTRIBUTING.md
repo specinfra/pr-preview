@@ -76,6 +76,11 @@ See `DEPLOYMENT.md` at the repo root for the full list of environment variables/
 7. View renders comment body with links
 8. Controller updates PR comment via GitHub API
 
+Every job ends as a success, a dismissal or a real error, and each leaves a
+different trace in the log and on the PR. See
+[docs/error-handling.md](docs/error-handling.md) for the mechanism and a
+walkthrough of every case.
+
 ## Environment Variables
 
 See `DEPLOYMENT.md` at the repo root.
