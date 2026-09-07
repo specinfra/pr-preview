@@ -154,7 +154,8 @@ suite("Logger", function() {
 
     suite("pretty printing (the default)", function() {
         const pretty = config => memoryLogger(Object.assign({ logFormat: "pretty" }, config));
-        const LINE = /^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} [+-]\d{4}\] (DEBUG|INFO|WARN|ERROR) \(pr-preview\): (.*)$/;
+        // No timestamp: the terminal is live and a log stream stamps lines itself.
+        const LINE = /^(DEBUG|INFO|WARN|ERROR) \(pr-preview\): (.*)$/;
         const body = line => {
             const match = LINE.exec(line);
             assert(match, line);
