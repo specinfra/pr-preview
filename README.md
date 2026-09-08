@@ -156,6 +156,27 @@ Currently, the only supported ones are "emu-algify" and "webidl-grammar".
 
 Used to pass an options object to the post-processor.
 
+## Restricting the app to specific organizations
+
+If you self-host PR Preview,
+you can restrict it to a set of GitHub organizations (or user accounts)
+by setting the `ALLOWED_ORGS` environment variable
+to a comma separated list of logins:
+
+```
+ALLOWED_ORGS=w3c,whatwg
+```
+
+Pull requests targeting repositories owned by anybody else are then ignored,
+as are config validation requests for those repositories.
+Logins are matched case-insensitively.
+When `ALLOWED_ORGS` is empty or unset,
+the app runs for every installation.
+
+Note this is enforced by the app itself, not by GitHub:
+installations from other organizations remain possible,
+they simply won't do anything.
+
 ***
 
 Hosting generously provided by <a href="https://www.unlockopen.com/home">UnlockOpen</a>.
