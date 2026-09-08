@@ -77,6 +77,28 @@ suite('Server', () => {
             .end(done);
     });
 
+    test('should answer the health check with a 2xx and the queue state', (done) => {
+        const controller = new Controller();
+        const config = { githubSecret: 'test-secret', nodeEnv: 'production' };
+        const app = createApp(controller, config);
+
+        controller.queue.push({ id: 'test/repo/1' });
+        controller.currently_running.add('test/repo/2');
+
+        request(app)
+            .get('/health')
+            .expect(200)
+            .expect('Content-Type', /json/)
+            .end((err, res) => {
+                if (err) return done(err);
+                assert.strictEqual(res.body.status, 'ok');
+                assert.strictEqual(typeof res.body.uptime, 'number');
+                assert.strictEqual(res.body.queued, 1);
+                assert.strictEqual(res.body.running, 1);
+                done();
+            });
+    });
+
     test('should create app successfully with valid config', () => {
         const controller = new Controller();
         const config = { githubSecret: 'test-secret' };

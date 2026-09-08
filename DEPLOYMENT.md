@@ -109,6 +109,7 @@ The Node.js runtime needs almost nothing from us:
 - **Start command** — the runtime runs `scripts.start` from `package.json`, which is `node index.js`. No `CC_RUN_COMMAND` needed.
 - **Dependencies** — installed at build time from `package.json`. Dev dependencies (`mocha`, `supertest`) are *not* installed by default, which is what we want; leave `CC_NODE_DEV_DEPENDENCIES` unset.
 - **Build step** — there is none (no `build` script), so nothing runs between install and start.
+- **Health check** — set `CC_HEALTH_CHECK_PATH` to `/health`. Without it the platform only checks that something is listening on port 8080, which a process can do and still be broken; with it the orchestrator requests `GET /health` after start-up and only counts the deploy as successful on a 2xx. The route answers `{"status":"ok"}` with the uptime and the queue depth, and probes nothing else: every build runs on a remote service, so there is no local dependency whose absence should fail a deploy.
 - **Node version** — set `CC_NODE_VERSION` to `22` alongside the other environment variables. The `engines` range in `package.json` carries the upper bound (see [Requirements](#requirements)), but pin this too rather than relying on the platform to honour it: with an open-ended range the platform resolves to the newest Node available, which is how a deployment ends up on a version the app cannot run on.
 
   **Changing it takes a rebuild, not a plain restart.** The Node version is baked in at build time, so a restart re-injects the variable into an image still carrying the old Node — the logs report the old version and the change looks like it did not apply. Use *rebuild and restart* from the application header, and confirm the expected `Node.js v22.x` in the Logs panel.
@@ -171,7 +172,9 @@ How a deploy is triggered depends on the choice made at creation: a push to the 
 - **Logs** streams build and application output. A successful boot logs `Express server listening on port 8080 in production mode`.
 - The application header carries **restart** controls — a plain restart, and a rebuild-and-restart that redoes the build from the current commit. Use the plain restart after an environment-variable change.
 
-If a deploy is marked unhealthy even though the app logged that it is listening, check the health-check configuration: this app exposes no `GET` route at all — only `POST /github-hook` and `POST /config` — so an HTTP health check against `/` will not get a 2xx.
+If a deploy is marked unhealthy even though the app logged that it is listening, check the health-check configuration: `CC_HEALTH_CHECK_PATH` must be `/health`. `GET /health` is the only `GET` route the app exposes — the others are `POST /github-hook` and `POST /config` — so a check against `/` or any other path gets a 404 and fails the deploy.
+
+The same route is a quick way to see whether the running instance is busy before restarting it: `curl https://<host>/health` reports how many jobs are queued and running.
 
 The [`clever-tools` CLI](https://github.com/CleverCloud/clever-tools) offers the same operations from a terminal (`clever logs`, `clever restart`, `clever env`) if that is ever preferable for day-to-day work. It is not needed for any step in this document.
 
@@ -213,6 +216,7 @@ Used when the PR owner is `whatwg`. Set `ALLOW_MULTIPLE_AWS_BUCKETS=no` to skip 
 ### Clever Cloud platform variables
 
 - `CC_NODE_VERSION` — Node.js version to run (pin to `22`; must be below 24 — see [Requirements](#requirements))
+- `CC_HEALTH_CHECK_PATH` — set to `/health`; the orchestrator requests it after start-up and fails the deploy unless it gets a 2xx (see [Build and start](#build-and-start))
 - `CC_NODE_DEV_DEPENDENCIES` — leave unset; dev dependencies are not installed by default
 - `CC_RUN_COMMAND` — not needed; the runtime uses `npm start`
 

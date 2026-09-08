@@ -24,6 +24,7 @@ See `DEPLOYMENT.md` at the repo root for the full list of environment variables/
 **Entry Point (`index.js`)**
 - Express server handling GitHub webhooks at `/github-hook`
 - Configuration endpoint at `/config` for testing configs
+- Health check at `GET /health` (returns the queue state; Clever Cloud validates deploys against it)
 - Startup queue processing for batch operations
 - Main webhook handler processes PR events: opened, edited, reopened, synchronize
 
