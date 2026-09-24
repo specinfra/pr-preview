@@ -7,7 +7,7 @@ if (process.env.NODE_ENV === "dev") {
 
 const createApp = require("./lib/app"),
     Controller = require("./lib/controller"),
-    { logger } = require("./lib/logger"),
+    { logger, memory, installProcessHandlers } = require("./lib/logger"),
     { parseStartupQueue, processStartupQueue } = require("./lib/startup-queue");
 
 var config = {
@@ -27,7 +27,19 @@ if (queue) {
 
 var app = createApp(controller, config, logger);
 var port = config.port;
-app.listen(port, function() {
+var server = app.listen(port, function() {
     logger.info("Express server listening on port %d in %s mode", port, app.settings.env);
-    logger.info("App started in %dms.", Date.now() - t0);
+    logger.info({ memory: memory(), ms: Date.now() - t0 }, "App started in %dms.", Date.now() - t0);
 });
+server.on("error", function(err) {
+    logger.fatal({ err }, "server error");
+    process.exit(1);
+});
+installProcessHandlers(logger, function(done) {
+    server.close(done);
+});
+// A periodic memory snapshot, cheap and invaluable when hunting down
+// an instance that runs out of memory.
+setInterval(function() {
+    logger.info({ memory: memory() }, "memory usage");
+}, 60000).unref();

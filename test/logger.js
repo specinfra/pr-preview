@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("assert"),
     memoryLogger = require("./support/memory-logger"),
-    { createLogger, configFromEnv, jobLogger, logStatus, logResult, statusMessage } = require("../lib/logger");
+    { createLogger, configFromEnv, jobLogger, logStatus, logResult, statusMessage, memory } = require("../lib/logger");
 
 const JOB = { id: "acme/spec/7", url: "https://github.com/acme/spec/pull/7", action: "synchronize" };
 
@@ -194,5 +194,12 @@ suite("Logger", function() {
             assert.equal(first, "    err: TypeError: bad");
             assert(/^        at /.test(second), second);
         });
+    });
+
+    test("memory() is a snapshot of the process' memory usage, in MB", function() {
+        const m = memory();
+        assert.deepEqual(Object.keys(m), ["rss", "heapUsed", "heapTotal", "external", "arrayBuffers"]);
+        Object.values(m).forEach(v => assert(Number.isInteger(v) && v >= 0, v));
+        assert(m.rss > 0);
     });
 });
