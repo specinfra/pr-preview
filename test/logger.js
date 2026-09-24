@@ -194,6 +194,15 @@ suite("Logger", function() {
             assert.equal(first, "    err: TypeError: bad");
             assert(/^        at /.test(second), second);
         });
+
+        test("a memory snapshot is printed on one line", function() {
+            const log = pretty();
+            log.info({ memory: { rss: 56, heapUsed: 5 } }, "memory usage");
+            const [head, first] = log.lines();
+            assert.equal(body(head), "INFO: memory usage");
+            assert.equal(first, '    memory: {"rss":56,"heapUsed":5}');
+            assert.equal(log.lines().length, 2);
+        });
     });
 
     test("memory() is a snapshot of the process' memory usage, in MB", function() {
