@@ -107,3 +107,50 @@ suite('WattsiClient.cleanup', function() {
         });
     });
 });
+
+suite('WattsiClient.fetch', function() {
+    // Stands in for fetchZip: records how many Wattsi requests overlap and
+    // settles on the next tick, rejecting for the shas listed in `failing`.
+    function stubFetchZip(w, state, failing) {
+        w.fetchZip = function(sha) {
+            state.inFlight++;
+            state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+            state.order.push(sha);
+            return new Promise(function(resolve, reject) {
+                setTimeout(function() {
+                    state.inFlight--;
+                    (failing || []).indexOf(sha) < 0 ? resolve() : reject(new Error("wattsi failed: " + sha));
+                }, 5);
+            });
+        };
+    }
+
+    test('sends one Wattsi request at a time across PRs', function() {
+        var state = { inFlight: 0, maxInFlight: 0, order: [] };
+        var a = new Wattsi({ number: 1, head_sha: "a-head", merge_base_sha: "a-base" });
+        var b = new Wattsi({ number: 2, head_sha: "b-head", merge_base_sha: "b-base" });
+        stubFetchZip(a, state);
+        stubFetchZip(b, state);
+        return Promise.all([a.fetch(), b.fetch()]).then(function() {
+            assert.equal(state.maxInFlight, 1);
+            assert.equal(state.order.length, 4);
+        });
+    });
+
+    test('a failed request does not block the ones behind it', function() {
+        var state = { inFlight: 0, maxInFlight: 0, order: [] };
+        var a = new Wattsi({ number: 3, head_sha: "c-head", merge_base_sha: "c-base" });
+        var b = new Wattsi({ number: 4, head_sha: "d-head", merge_base_sha: "d-base" });
+        stubFetchZip(a, state, ["c-head"]);
+        stubFetchZip(b, state);
+        var failed = a.fetch().then(function() {
+            assert.fail("expected fetch to reject");
+        }, function(err) {
+            assert.equal(err.message, "wattsi failed: c-head");
+        });
+        return Promise.all([failed, b.fetch()]).then(function() {
+            assert.equal(state.maxInFlight, 1);
+            assert.deepEqual(state.order, ["c-head", "d-head", "d-base"]);
+        });
+    });
+});
