@@ -178,7 +178,7 @@ suite('Server signature verification', () => {
             .set('Content-Type', 'application/json')
             .set('X-Hub-Signature', sign('wrong-secret', BODY))
             .send(BODY)
-            .expect(404)
+            .expect(401)
             .end(done);
     });
 
@@ -189,7 +189,7 @@ suite('Server signature verification', () => {
             .post('/github-hook')
             .set('Content-Type', 'application/json')
             .send(BODY)
-            .expect(404)
+            .expect(401)
             .end(done);
     });
 });

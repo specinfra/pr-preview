@@ -283,8 +283,8 @@ Only `opened`, `edited`, `reopened` and `synchronize` pull_request events
 are queued. The bot's own body update comes back as an `edited` event and
 is recognised by its sender. A PR already queued or running is not queued
 twice. Unverified requests in production are logged at `warn` as
-`Unverified request: <method> <url> from <address>` and fall through to
-Express's 404.
+`Unverified request: <method> <url> from <address>` and answered with a
+401, so a mismatched secret shows up as such in GitHub's delivery log.
 
 **Config tester** (`POST /config`). Validation errors (bad repo name,
 invalid JSON, schema violations, a repo with no PRs) are answered with a
