@@ -1,5 +1,6 @@
 var assert = require('assert'),
-    Wattsi = require('../lib/wattsi-client');
+    Wattsi = require('../lib/wattsi-client'),
+    path = require('path');
 
 suite('WattsiClient.filter', function() {
     var w = new Wattsi();
@@ -214,6 +215,98 @@ suite('WattsiClient.fetch', function() {
         return Promise.all([failed, b.fetch()]).then(function() {
             assert.equal(state.maxInFlight, 1);
             assert.deepEqual(state.order, ["c-head", "d-head", "d-base"]);
+        });
+    });
+});
+
+suite('WattsiClient.step', function() {
+    var fs = require('fs'),
+        memoryLogger = require('./support/memory-logger');
+
+    function newClient(log) {
+        return new Wattsi({ number: "test-" + process.pid, head_sha: "head", merge_base_sha: "base" }, { logger: log });
+    }
+
+    teardown(function() {
+        fs.rmSync(newClient().dirPath, { recursive: true, force: true });
+    });
+
+    test('logs when a step starts and ends, with the scratch dir size', function() {
+        var log = memoryLogger({ logLevel: "debug" });
+        var w = newClient(log);
+        return w.step("extract head build", function() {
+            fs.mkdirSync(w.headDirPath, { recursive: true });
+            fs.writeFileSync(w.headPath("a.html"), Buffer.alloc(2 * 1048576));
+            return Promise.resolve("result");
+        }).then(function(result) {
+            assert.equal(result, "result");
+            var records = log.records();
+            assert.equal(records.length, 2);
+            assert.equal(records[0].msg, "#" + w.number + " extract head build: starting");
+            assert.ok(/: done in \d+ms \(scratch dir: 2 MB\)$/.test(records[1].msg), records[1].msg);
+            assert.ok(records[0].memory.rss > 0);
+            assert.ok(records[1].memory.rss > 0);
+        });
+    });
+
+    test('logs a failed step and passes the error on', function() {
+        var log = memoryLogger({ logLevel: "debug" });
+        var w = newClient(log);
+        return w.step("fetch head build", function() {
+            return Promise.reject(new Error("Wattsi server error"));
+        }).then(function() {
+            assert.fail("expected step to reject");
+        }, function(err) {
+            assert.equal(err.message, "Wattsi server error");
+            var messages = log.messages();
+            assert.equal(messages[0], "#" + w.number + " fetch head build: starting");
+            assert.ok(/: failed after \d+ms$/.test(messages[1]), messages[1]);
+        });
+    });
+
+    test('the scratch dir size is 0 when there is none', function() {
+        return newClient().scratchSize().then(function(size) {
+            assert.equal(size, 0);
+        });
+    });
+});
+
+suite('WattsiClient.logListing', function() {
+    var fs = require('fs'),
+        memoryLogger = require('./support/memory-logger');
+
+    function newClient(log) {
+        return new Wattsi({ number: "test-" + process.pid }, { logger: log });
+    }
+
+    teardown(function() {
+        fs.rmSync(newClient().dirPath, { recursive: true, force: true });
+    });
+
+    test('lists the unpacked files when debugging', function() {
+        var log = memoryLogger({ logLevel: "debug" });
+        var w = newClient(log);
+        fs.mkdirSync(w.dirPath, { recursive: true });
+        fs.writeFileSync(path.join(w.dirPath, "b.html"), "");
+        fs.writeFileSync(path.join(w.dirPath, "a.html"), "");
+        return w.logListing(w.dirPath).then(function() {
+            assert.deepEqual(log.messages(), ["ls -A1 " + w.dirPath + ":\na.html\nb.html"]);
+        });
+    });
+
+    test('does nothing when debug logging is off', function() {
+        var log = memoryLogger({ logLevel: "info" });
+        var w = newClient(log);
+        return w.logListing("/does/not/exist").then(function() {
+            assert.equal(log.text(), "");
+        });
+    });
+
+    test('never fails the build', function() {
+        var log = memoryLogger({ logLevel: "debug" });
+        var w = newClient(log);
+        return w.logListing("/does/not/exist").then(function() {
+            assert.ok(/: failed$/.test(log.messages()[0]));
         });
     });
 });
