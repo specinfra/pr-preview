@@ -108,6 +108,69 @@ suite('WattsiClient.cleanup', function() {
     });
 });
 
+suite('WattsiClient.unzip', function() {
+    var childProcess = require('child_process'),
+        originalExec = childProcess.exec,
+        modulePath = require.resolve('../lib/wattsi-client'),
+        commands;
+
+    setup(function() {
+        commands = [];
+        childProcess.exec = function(cmd, callback) {
+            commands.push(cmd);
+            process.nextTick(function() { callback(null, "", ""); });
+        };
+        delete require.cache[modulePath];
+    });
+
+    teardown(function() {
+        childProcess.exec = originalExec;
+        delete require.cache[modulePath];
+    });
+
+    function newClient() {
+        var StubbedWattsi = require('../lib/wattsi-client');
+        return new StubbedWattsi({ number: 1234, head_sha: "head", merge_base_sha: "base" });
+    }
+
+    test('extracts only multipage-html (and xrefs.json for the head)', function() {
+        var w = newClient();
+        return w.unzip().then(function() {
+            var unzips = commands.filter(function(c) { return c.indexOf("unzip ") == 0; });
+            assert.deepEqual(unzips, [
+                "unzip -q " + w.headZipPath + " 'multipage-html/*' 'xrefs.json' -d " + w.headUnzipDir,
+                "unzip -q " + w.mergeBaseZipPath + " 'multipage-html/*' -d " + w.mergeBaseUnzipDir,
+            ]);
+        });
+    });
+
+    test('deletes each zip once it is extracted', function() {
+        var w = newClient();
+        return w.unzip().then(function() {
+            var headUnzip = commands.indexOf("unzip -q " + w.headZipPath + " 'multipage-html/*' 'xrefs.json' -d " + w.headUnzipDir);
+            var headRm = commands.indexOf("rm -f " + w.headZipPath);
+            var baseRm = commands.indexOf("rm -f " + w.mergeBaseZipPath);
+            assert.ok(headRm > headUnzip);
+            assert.ok(baseRm > headRm);
+        });
+    });
+
+    test('rejects, and keeps the zip, when unzip fails', function() {
+        childProcess.exec = function(cmd, callback) {
+            commands.push(cmd);
+            var err = cmd.indexOf("unzip ") == 0 ? new Error("unzip failed") : null;
+            process.nextTick(function() { callback(err, "", ""); });
+        };
+        var w = newClient();
+        return w.unzip().then(function() {
+            assert.fail("expected unzip to reject");
+        }, function(err) {
+            assert.equal(err.message, "unzip failed");
+            assert.ok(!commands.some(function(c) { return c.indexOf("rm -f ") == 0; }));
+        });
+    });
+});
+
 suite('WattsiClient.fetch', function() {
     // Stands in for fetchZip: records how many Wattsi requests overlap and
     // settles on the next tick, rejecting for the shas listed in `failing`.

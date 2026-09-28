@@ -11,7 +11,7 @@ It is deployed on [Clever Cloud](https://www.clever-cloud.com/), on the Node.js 
 - The existing AWS S3 buckets and their credentials
 - The existing GitHub App credentials
 - Outbound HTTPS access to `api.github.com`, S3, and the spec-generator services listed in `lib/services.js`
-- `unzip` and `diff` on the host image — the WHATWG/HTML path shells out to them (`lib/wattsi-client.js:138-171`). `diff` is on essentially any Linux image; `unzip` is a separate package on minimal images and is the one to verify.
+- `unzip` and `diff` on the host image — the WHATWG/HTML path shells out to them (`lib/wattsi-client.js:156-192`). `diff` is on essentially any Linux image; `unzip` is a separate package on minimal images and is the one to verify.
 
 ## GitHub App
 
@@ -146,11 +146,11 @@ Changes take effect on restart, not on save — the panel will offer to restart 
 Set this in the **Scalability** panel. Two things need changing from the defaults:
 
 - **Exactly one instance.** Set minimum and maximum instances both to 1 and leave horizontal auto-scaling off. The controller keeps its job queue, its `currently_running` de-duplication set, and its previewer cache in process memory (`lib/controller.js:11-16`). A second instance would not see the first one's in-flight jobs, so the same PR could be built twice concurrently and the two runs would race to update the PR body.
-- **Flavor: `pico` to start.** The app is not CPU-bound. Every spec build happens on a remote service — Spec Generator, the HTML Diff service, Wattsi Server (`lib/services.js`) — so the process spends most of its life waiting on HTTP, and `pico`'s reduced CPU priority matters less than it would for a compute-heavy service. 256 MiB is the bet being made; memory, not CPU, is what will decide whether it holds.
+- **Flavor: `nano` (512 MiB).** The app is not CPU-bound. Every spec build happens on a remote service — Spec Generator, the HTML Diff service, Wattsi Server (`lib/services.js`) — so the process spends most of its life waiting on HTTP. Memory, not CPU, is what decides the flavor. The deployment started on `pico` (256 MiB) and runs on `nano` now.
 
-  Two things consume it, both scaling with spec size rather than PR count. Post-processors (`emu-algify`, `webidl-grammar`) parse a whole rendered spec in-process. And the wattsi path — gated on `processor == "wattsi"` in a repo's `.pr-preview.json`, which in practice means `whatwg/html` — downloads two complete spec builds, unzips both into `os.tmpdir()` and runs `diff -qr` across them (`lib/wattsi-client.js:138-171`); that one is mostly scratch disk, since it uploads file by file rather than holding the build in memory.
+  Two things consume it, both scaling with spec size rather than PR count. Post-processors (`emu-algify`, `webidl-grammar`) parse a whole rendered spec in-process. And the wattsi path — gated on `processor == "wattsi"` in a repo's `.pr-preview.json`, which in practice means `whatwg/html` — downloads two complete spec builds into `os.tmpdir()`, extracts `multipage-html/` from each, and runs `diff -qr` across them (`lib/wattsi-client.js:156-192`). The Node heap stays small because files are uploaded one by one. The scratch files themselves can still count against the instance's memory, so the client extracts only what it uses, deletes each zip once it is unpacked, and removes the whole per-PR directory when the job ends, including when it fails.
 
-  **If 256 MiB is too tight, the failure is an OOM kill, and the blast radius is larger than one preview.** The job queue lives in process memory (`lib/controller.js:11-16`), so a kill mid-build drops every queued PR, not just the one that overran. Watch for unexplained restarts under load rather than reading a single missing preview as a one-off. Changing flavor later is a restart, so this is cheap to revisit.
+  **When memory runs out, the failure is an OOM kill, and the blast radius is larger than one preview.** The job queue lives in process memory (`lib/controller.js:11-16`), so a kill mid-build drops every queued PR, not just the one that overran. It shows up in the log as a bare `Killed` from the start script, with no shutdown lines, and the one-minute `memory usage` lines arrive late in the minutes before it. Node's own RSS in those lines can look healthy; the memory may be going to scratch files instead. Changing flavor is a restart.
 
 The filesystem is ephemeral — each deploy or restart gets a fresh VM. That is fine here: the only local writes are that scratch space, and nothing is expected to survive. No FS Bucket add-on is needed.
 

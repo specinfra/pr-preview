@@ -109,6 +109,76 @@ suite("Controller.handlePullRequest", function() {
     });
 });
 
+suite("Controller.handlePullRequest cleanup", function() {
+    let restore;
+    teardown(() => { if (restore) restore(); restore = null; });
+
+    // Stands in for a WattsiClient, counting cleanup() calls.
+    function withWattsi(pr, state) {
+        pr.wattsi = { cleanup: () => { state.cleanups++; return Promise.resolve(); } };
+    }
+
+    test("cleans up after a successful build", function() {
+        const controller = new Controller({ logger: silentLogger });
+        const state = { cleanups: 0 };
+        restore = stubInit(function() {
+            loadedPR(this);
+            withWattsi(this, state);
+            this.cacheAll = () => Promise.resolve();
+            this.checkForChanges = () => Promise.resolve({});
+        });
+        controller.render = () => "";
+
+        return controller.handlePullRequest(JOB).then(r => {
+            assert.equal(r.success, true);
+            assert.equal(state.cleanups, 1);
+        });
+    });
+
+    test("cleans up when the build fails part way", function() {
+        const controller = new Controller({ logger: silentLogger });
+        const state = { cleanups: 0 };
+        restore = stubInit(function() {
+            withWattsi(this, state);
+            throw new Error("unzip failed");
+        });
+
+        return controller.handlePullRequest(JOB).then(r => {
+            assert.equal(r.error.message, "unzip failed");
+            assert.equal(state.cleanups, 1);
+        });
+    });
+
+    test("cleans up when no update is needed", function() {
+        const controller = new Controller({ logger: silentLogger });
+        const state = { cleanups: 0 };
+        restore = stubInit(function() {
+            loadedPR(this);
+            withWattsi(this, state);
+            this.touchesSrcFile = () => false;
+        });
+
+        return controller.handlePullRequest(JOB).then(r => {
+            assert.equal(r.success, true);
+            assert.equal(state.cleanups, 1);
+        });
+    });
+
+    test("a failing cleanup doesn't change the result", function() {
+        const controller = new Controller({ logger: silentLogger });
+        restore = stubInit(function() {
+            loadedPR(this);
+            this.wattsi = { cleanup: () => Promise.reject(new Error("rm failed")) };
+            this.touchesSrcFile = () => false;
+        });
+
+        return controller.handlePullRequest(JOB).then(r => {
+            assert.equal(r.success, true);
+            assert.equal(r.error, null);
+        });
+    });
+});
+
 suite("Controller.processQueue", function() {
     test("requeues a job whose build was aborted, once it is released", function() {
         const controller = new Controller({ logger: silentLogger });
