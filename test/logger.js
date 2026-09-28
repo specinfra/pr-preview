@@ -207,8 +207,19 @@ suite("Logger", function() {
 
     test("memory() is a snapshot of the process' memory usage, in MB", function() {
         const m = memory();
-        assert.deepEqual(Object.keys(m), ["rss", "heapUsed", "heapTotal", "external", "arrayBuffers"]);
+        assert.deepEqual(Object.keys(m).slice(0, 5), ["rss", "heapUsed", "heapTotal", "external", "arrayBuffers"]);
         Object.values(m).forEach(v => assert(Number.isInteger(v) && v >= 0, v));
         assert(m.rss > 0);
+    });
+
+    test("memory() adds the machine's memory and tmp usage where it can read them", function() {
+        const m = memory();
+        const extra = Object.keys(m).slice(5);
+        extra.forEach(k => assert(["memTotal", "memAvailable", "shmem", "tmpUsed"].includes(k), k));
+        if (process.platform == "linux") {
+            assert.deepEqual(extra, ["memTotal", "memAvailable", "shmem", "tmpUsed"]);
+            assert(m.memTotal > 0);
+            assert(m.memAvailable <= m.memTotal);
+        }
     });
 });
