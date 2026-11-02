@@ -1,6 +1,7 @@
 "use strict";
 const assert = require("assert"),
-    PR = require("../../lib/models/pr");
+    PR = require("../../lib/models/pr"),
+    Spec = require("../../lib/models/spec");
 const payload = require("../fixtures/pr");
 
 suite("PR model", function() {
@@ -96,28 +97,36 @@ const BODY = `* Extract legacy callback interface objects
         assert.equal(pr.requiresPreview(), false);
     });
     
-    test("touchesSrcFile()", function() {
+    test("touchesSrcFile() is true when any spec is touched", function() {
         let pr = new PR("heycam/webidl/283", { id: 234 });
         pr.files = require("../fixtures/files");
-        pr.config = { src_file: "index.bs" };
+        pr.config = { src_file: "index.bs", type: "bikeshed" };
+        pr.specs = Spec.fromConfig(pr, pr.config);
         assert(pr.touchesSrcFile());
-        pr = new PR("heycam/webidl/283", { id: 234 });
-        pr.files = require("../fixtures/files");
-        pr.config = { src_file: "foo.html" };
+        pr.config = [{ src_file: "foo.bs", type: "bikeshed" }, { src_file: "index.bs", type: "bikeshed" }];
+        pr.specs = Spec.fromConfig(pr, pr.config);
+        assert(pr.touchesSrcFile());
+        pr.config = [{ src_file: "foo.bs", type: "bikeshed" }, { src_file: "bar.bs", type: "bikeshed" }];
+        pr.specs = Spec.fromConfig(pr, pr.config);
         assert.equal(pr.touchesSrcFile(), false);
     });
-    
-    test("get processor", function() {
+
+    test("isMultiSpec", function() {
         let pr = new PR("heycam/webidl/283", { id: 234 });
-        pr.config = { type: "bikeshed" };
-        assert.equal(pr.processor, "bikeshed");
+        pr.config = { src_file: "index.bs", type: "bikeshed" };
+        assert.equal(pr.isMultiSpec, false);
+        pr.config = [{ src_file: "index.bs", type: "bikeshed" }];
+        assert.equal(pr.isMultiSpec, true);
     });
-    
-    
-    test("processor is always lowercase", function() {
+
+    test("built_specs are the touched specs, or all of them when none is", function() {
         let pr = new PR("heycam/webidl/283", { id: 234 });
-        pr.config = { type: "Bikeshed" };
-        assert.equal(pr.processor, "bikeshed");
+        pr.files = require("../fixtures/files");
+        pr.config = [{ src_file: "foo.bs", type: "bikeshed" }, { src_file: "index.bs", type: "bikeshed" }, { src_file: "bar.bs", type: "bikeshed" }];
+        pr.specs = Spec.fromConfig(pr, pr.config);
+        assert.deepEqual(pr.built_specs.map(s => s.src_file), ["index.bs"]);
+        pr.files = [];
+        assert.deepEqual(pr.built_specs.map(s => s.src_file), ["foo.bs", "index.bs", "bar.bs"]);
     });
 
     test("checkForChanges detects commit changes", function(done) {
@@ -269,5 +278,114 @@ const BODY = `* Extract legacy callback interface objects
         process.env.NODE_ENV = originalEnv;
         done();
     });
+
 });
 
+suite("PR job with several specs", function() {
+    const GH_API = require("../../lib/GH_API");
+    const File = require("../../lib/models/file");
+    const ORIGINAL = {
+        requestIncludes: Spec.prototype.requestIncludes,
+        getPreviewFiles: Spec.prototype.getPreviewFiles,
+        cache: File.prototype.cache
+    };
+    let calls;
+
+    setup(function() {
+        calls = [];
+        // Scanning includes fetches from GitHub: "other.bs" includes "index.bs",
+        // which the fixture PR changes.
+        Spec.prototype.requestIncludes = function() {
+            calls.push(["includes", this.src_file]);
+            this.includes = this.src_file == "other.bs" ? ["index.bs"] : [];
+            return Promise.resolve();
+        };
+        Spec.prototype.getPreviewFiles = function() {
+            calls.push(["preview files", this.src_file]);
+            return ORIGINAL.getPreviewFiles.call(this);
+        };
+        File.prototype.cache = function() {
+            calls.push(["cache", this.filename]);
+            return Promise.resolve();
+        };
+    });
+
+    teardown(function() {
+        Spec.prototype.requestIncludes = ORIGINAL.requestIncludes;
+        Spec.prototype.getPreviewFiles = ORIGINAL.getPreviewFiles;
+        File.prototype.cache = ORIGINAL.cache;
+    });
+
+    // A PR whose GitHub API calls are answered from fixtures.
+    function prWithConfig(config) {
+        let pr = new PR("heycam/webidl/283", { id: 234 });
+        pr.setupApi = () => Promise.resolve();
+        pr.request = url => {
+            calls.push(["github", url]);
+            switch (url) {
+                case GH_API.GET_CONFIG_FILE:
+                    return Promise.resolve({ type: "file", content: Buffer.from(JSON.stringify(config)).toString("base64") });
+                case GH_API.GET_PR:
+                    return Promise.resolve(payload.pull_request);
+                case GH_API.GET_COMPARE_COMMITS:
+                    return Promise.resolve({
+                        merge_base_commit: { sha: "c2fd513de33ea3f053495f4e135614db6e6aa617" },
+                        files: require("../fixtures/files")
+                    });
+            }
+            throw new Error(`Unexpected request ${url}`);
+        };
+        return pr;
+    }
+
+    test("scans every spec's includes, then builds and caches only the specs the PR changes", function() {
+        let pr = prWithConfig([
+            { src_file: "index.bs", type: "bikeshed", name: "Index" },
+            { src_file: "unrelated.bs", type: "bikeshed" },
+            { src_file: "other.bs", type: "bikeshed" }
+        ]);
+        return pr.init().then(() => {
+            assert(pr.isMultiSpec);
+            assert.deepEqual(pr.built_specs.map(s => s.src_file), ["index.bs", "other.bs"]);
+            return pr.cacheAll();
+        }).then(() => {
+            assert.deepEqual(calls, [
+                ["github", GH_API.GET_CONFIG_FILE],
+                ["github", GH_API.GET_PR],
+                ["includes", "index.bs"],
+                ["includes", "unrelated.bs"],
+                ["includes", "other.bs"],
+                ["github", GH_API.GET_COMPARE_COMMITS],
+                ["preview files", "index.bs"],
+                ["preview files", "other.bs"],
+                ["cache", "index.html"],
+                ["cache", "other.html"]
+            ]);
+            assert.equal(pr.specs[1].preview_files, undefined, "an unchanged spec gets no preview files");
+        });
+    });
+
+    test("renders a body listing only the specs the PR changes, by name", function() {
+        process.env.AWS_BUCKET_NAME = "bar";
+        const BodyView = require("../../lib/views/body");
+        let pr = prWithConfig([
+            { src_file: "index.bs", type: "bikeshed", name: "Index" },
+            { src_file: "unrelated.bs", type: "bikeshed" },
+            { src_file: "other.bs", type: "bikeshed" }
+        ]);
+        return pr.init().then(() => {
+            let links = new BodyView().content(pr).split("\n").map(line => line.match(/>([^<]+)<\/a>/)[1]);
+            assert.deepEqual(links, ["Index", "/other.html"]);
+        });
+    });
+
+    test("a single-spec config builds its spec under the PR's own key", function() {
+        process.env.AWS_BUCKET_NAME = "bar";
+        let pr = prWithConfig({ src_file: "index.bs", type: "bikeshed" });
+        return pr.init().then(() => {
+            assert.equal(pr.isMultiSpec, false);
+            assert.deepEqual(pr.built_specs.map(s => s.src_file), ["index.bs"]);
+            assert.equal(pr.specs[0].preview_files[0].head.key, "tobie/webidl/pull/283.html");
+        });
+    });
+});

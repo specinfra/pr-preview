@@ -118,6 +118,69 @@ suite("Config validation", function() {
     });
 });
 
+suite("Config validation, multiple specs", function() {
+    test("an array of specs", function() {
+        assert.doesNotThrow(_ => Config.validate([
+            { src_file: "a.bs", type: "bikeshed" },
+            { src_file: "b.html", type: "respec", name: "B" }
+        ]));
+    });
+
+    test("every spec needs a src_file and a type of its own", function() {
+        assert.throws(_ => Config.validate([{ src_file: "a.bs", type: "bikeshed" }, { src_file: "b.bs" }]),
+            err => err.dismissalReason.startsWith(".pr-preview.json is invalid at /1:"));
+    });
+
+    test("an empty list of specs is invalid", function() {
+        assert.throws(_ => Config.validate([]),
+            err => err.dismissalReason == ".pr-preview.json is invalid: the list of specs is empty");
+    });
+
+    test("wattsi can't be one of several specs", function() {
+        assert.throws(_ => Config.validate([{ src_file: "source", type: "wattsi" }]),
+            err => err.noConfig && /wattsi/.test(err.dismissalReason));
+    });
+
+    test("two specs can't be previewed at the same path", function() {
+        assert.throws(_ => Config.validate([
+            { src_file: "a.bs", type: "bikeshed" },
+            { src_file: "a.html", type: "respec" }
+        ]), err => err.dismissalReason == ".pr-preview.json is invalid: /0 and /1 would both be previewed at a.html");
+    });
+
+    test("the fields of each spec are checked", function() {
+        assert.throws(_ => Config.validate([{ src_file: "a.bs", type: "bikeshed", params: { foo: {} } }]),
+            err => err.dismissalReason.startsWith(".pr-preview.json is invalid at /0/params/foo:"));
+    });
+});
+
+suite("Config.specs", function() {
+    test("a single-spec config is a list of one, with defaults", function() {
+        assert.deepEqual(Config.specs({ src_file: "a.bs", type: "bikeshed" }), [
+            { src_file: "a.bs", type: "bikeshed", params: { "md-warning": "not ready" } }
+        ]);
+    });
+
+    test("each spec of an array gets its own defaults, and the config is left alone", function() {
+        let config = [
+            { src_file: "a.bs", type: "bikeshed", name: "A" },
+            { src_file: "b.html", type: "respec", params: { foo: "bar" } }
+        ];
+        assert.deepEqual(Config.specs(config), [
+            { src_file: "a.bs", type: "bikeshed", name: "A", params: { "md-warning": "not ready" } },
+            { src_file: "b.html", type: "respec", params: { foo: "bar", isPreview: true } }
+        ]);
+        assert.deepEqual(config[1].params, { foo: "bar" });
+    });
+
+    test("outputPath swaps the extension for .html and keeps directories", function() {
+        assert.equal(Config.outputPath("index.bs"), "index.html");
+        assert.equal(Config.outputPath("index.html"), "index.html");
+        assert.equal(Config.outputPath("css-grid-2/Overview.bs"), "css-grid-2/Overview.html");
+        assert.equal(Config.outputPath("v1.0/spec"), "v1.0/spec.html");
+    });
+});
+
 suite("Config.addDefault", function() {
     test("Defaults md-warning to 'not ready' for Bikeshed configs", function() {
         assert.deepEqual({
@@ -177,7 +240,7 @@ suite("Config.request", function() {
         return config.request().then(result => {
             assert.equal(result.src_file, "test.bs");
             assert.equal(result.type, "respec");
-            assert.equal(result.params.isPreview, true); // Should have default added
+            assert.equal(result.params, undefined); // Defaults are added per spec, by Config.specs()
         });
     });
 

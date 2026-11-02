@@ -7,6 +7,7 @@ function fakePR(overrides) {
         payload: { head: { sha: "abc123" } },
         isMerged: false,
         config: { src_file: "index.bs", type: "bikeshed" },
+        specs: [{ src_file: "index.bs" }],
         touchesSrcFile: () => true,
         requiresPreview: () => true
     }, overrides);
@@ -25,6 +26,8 @@ suite("Controller.updateSkipReason", function() {
             [{ payload: null }, "PR was never loaded"],
             [{ isMerged: true }, "PR is already merged"],
             [{ touchesSrcFile: () => false }, "no change to index.bs or the files it includes"],
+            [{ touchesSrcFile: () => false, specs: [{ src_file: "a.bs" }, { src_file: "b.bs" }] },
+                "no change to the sources of its 2 specs or the files they include"],
             [{ requiresPreview: () => false }, "PR body opts out with <!-- no preview -->"]
         ];
 
