@@ -25,6 +25,7 @@ function stubInit(fn) {
 function loadedPR(pr) {
     pr.payload = { head: { sha: "abc123" }, body: "", merged: false };
     pr.config = { type: "bikeshed", src_file: "index.bs" };
+    pr.specs = [{ src_file: "index.bs", cleanup: () => Promise.resolve() }];
     pr.touchesSrcFile = () => true;
     pr.requiresPreview = () => true;
 }
@@ -113,9 +114,9 @@ suite("Controller.handlePullRequest cleanup", function() {
     let restore;
     teardown(() => { if (restore) restore(); restore = null; });
 
-    // Stands in for a WattsiClient, counting cleanup() calls.
+    // Stands in for a Wattsi spec, counting cleanup() calls.
     function withWattsi(pr, state) {
-        pr.wattsi = { cleanup: () => { state.cleanups++; return Promise.resolve(); } };
+        pr.specs = [{ src_file: "source", cleanup: () => { state.cleanups++; return Promise.resolve(); } }];
     }
 
     test("cleans up after a successful build", function() {
@@ -168,7 +169,7 @@ suite("Controller.handlePullRequest cleanup", function() {
         const controller = new Controller({ logger: silentLogger });
         restore = stubInit(function() {
             loadedPR(this);
-            this.wattsi = { cleanup: () => Promise.reject(new Error("rm failed")) };
+            this.specs = [{ src_file: "source", cleanup: () => Promise.reject(new Error("rm failed")) }];
             this.touchesSrcFile = () => false;
         });
 

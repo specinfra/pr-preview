@@ -76,6 +76,7 @@ with the following fields:
 ### `src_file` (required)
 
 This should point to the relative path to the source file from the root of the repository.
+For a repository holding several specs, see below.
 
 ### `type` (required)
 
@@ -126,6 +127,32 @@ to produce [this snapshot](https://www.w3.org/publications/spec-generator/?type=
     "back_to_ls_link": "<a href=\"https://url.spec.whatwg.org/\" id=\"commit-snapshot-link\">Go to the living standard</a>"
 }
 ```
+
+### Several specs in one repository
+
+A repository holding several specs uses an array of configs, one per spec,
+each with the same fields as a single-spec config:
+
+```json
+[
+    {
+        "src_file": "index.bs",
+        "type": "bikeshed",
+        "name": "Web Bluetooth"
+    },
+    {
+        "src_file": "scanning.bs",
+        "type": "bikeshed",
+        "name": "Web Bluetooth Scanning"
+    }
+]
+```
+
+A pull request gets a preview and a diff for each spec it changes, either directly or through the files the spec includes,
+listed by the spec's `name`, or by the path of its preview when it has none.
+Each spec's preview is at its source path with an `.html` extension,
+so no two specs can have source files that differ only by extension.
+Wattsi specs can't be one of several.
 
 ### `post_processing` (optional)
 

@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
     "title": "PR Preview Config",
-    "description": "Config file for PR Preview.",
+    "description": "Config file for PR Preview. A repository holding several specs uses an array of these.",
     "properties": {
       "type": {
         "definition": "The spec processor used to render this spec.",
@@ -10,6 +10,11 @@
       },
       "src_file": {
           "definition": "Relative path to the source file from the root of the repository",
+          "type": "string",
+          "minLength":1
+      },
+      "name": {
+          "definition": "The spec's name in the pull request's preview links, when the config lists several specs. Defaults to the preview's path.",
           "type": "string",
           "minLength":1
       },

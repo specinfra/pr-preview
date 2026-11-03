@@ -36,7 +36,8 @@ See `DEPLOYMENT.md` at the repo root for the full list of environment variables/
 
 **Models (`lib/models/`)**
 - `pr.js`: Core PR model handling GitHub API interactions and caching
-- `config.js`: Validates `.pr-preview.json` config files against schema
+- `spec.js`: One spec of the repository: its config, includes and preview files (a config can list several)
+- `config.js`: Validates `.pr-preview.json` config files against schema, and turns a config (one spec, or an array of them) into one config per spec
 - `branch.js`: Manages branch/head information and URL generation
 - `file.js`: Handles file operations and S3 uploads
 - `spec-diff.js`: Generates HTML diffs between spec versions
